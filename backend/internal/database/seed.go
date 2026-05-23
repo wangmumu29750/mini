@@ -166,7 +166,7 @@ func seedTrainWithInventory(tx *gorm.DB, stations map[string]model.Station) erro
 		{SeatClassCode: "FIRST", PriceCents: 101800, TotalCount: 42, AvailableCount: 18},
 	})
 }
-
+//niubi
 func findOrCreateTrain(tx *gorm.DB, trainNo string, trainType string) (model.Train, error) {
 	var train model.Train
 	err := tx.Where("train_no = ?", trainNo).First(&train).Error
