@@ -17,5 +17,7 @@ func Migrate(db *gorm.DB) error {
 		&model.Order{},
 		&model.Payment{},
 		&model.Ticket{},
+		&model.Refund{},
+		&model.ChangeRecord{},
 	)
 }

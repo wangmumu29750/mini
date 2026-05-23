@@ -289,6 +289,9 @@ Implemented authenticated endpoints:
 | --- | --- | --- |
 | GET | `/tickets` | List current user's issued tickets |
 | GET | `/tickets/{ticketId}` | Get current user's ticket detail |
+| POST | `/tickets/{ticketId}/refund` | Refund an issued ticket before departure |
+| GET | `/tickets/{ticketId}/change-options` | Query changeable train and seat options for an issued ticket |
+| POST | `/tickets/{ticketId}/change` | Change an issued ticket to another train/date/seat class |
 
 Ticket response:
 
@@ -302,11 +305,82 @@ Ticket response:
   "travelDate": "2026-05-24",
   "fromStation": {"id": 1, "name": "北京南"},
   "toStation": {"id": 5, "name": "上海虹桥"},
+  "departTime": "2026-05-24T08:00:00+08:00",
+  "arriveTime": "2026-05-24T13:30:00+08:00",
   "seatClassCode": "SECOND",
   "seatClassName": "二等座",
+  "coachNo": "04",
+  "seatNo": "08A",
   "passengerName": "张三",
   "idCardNoMasked": "1101**********1234",
   "status": "ISSUED",
   "issuedAt": "2026-05-23T15:31:00+08:00"
+}
+```
+
+Refund response data:
+
+```json
+{
+  "refundNo": "R20260523154000123456",
+  "ticket": {
+    "id": 1,
+    "ticketNo": "T20260523153100123456",
+    "status": "REFUNDED",
+    "refundedAt": "2026-05-23T15:40:00+08:00"
+  }
+}
+```
+
+Change options query:
+
+- `date=2026-05-25`
+
+Change options response data:
+
+```json
+{
+  "originalTicket": {
+    "id": 1,
+    "ticketNo": "T20260523153100123456",
+    "status": "ISSUED"
+  },
+  "options": [
+    {
+      "trainId": 2,
+      "trainNo": "G102",
+      "travelDate": "2026-05-25",
+      "fromStation": {"id": 1, "name": "北京南"},
+      "toStation": {"id": 5, "name": "上海虹桥"},
+      "departTime": "2026-05-25T09:00:00+08:00",
+      "arriveTime": "2026-05-25T14:30:00+08:00",
+      "durationMinutes": 330,
+      "seatOptions": [
+        {"seatClassCode": "SECOND", "seatClassName": "二等座", "priceCents": 55300, "availableCount": 18}
+      ]
+    }
+  ]
+}
+```
+
+Change request:
+
+```json
+{
+  "newTrainId": 2,
+  "newTravelDate": "2026-05-25",
+  "newSeatClassCode": "FIRST",
+  "idempotencyKey": "uuid-from-client"
+}
+```
+
+Change response data:
+
+```json
+{
+  "changeNo": "C20260523154500123456",
+  "priceDiffCents": 38000,
+  "oldTicket": {"id": 1, "status": "CHANGED_OUT"},
+  "newTicket": {"id": 2, "ticketNo": "T20260523154500123456", "status": "ISSUED"}
 }
 ```

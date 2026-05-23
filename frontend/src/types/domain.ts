@@ -30,6 +30,8 @@ export interface Order {
   travelDate: string
   fromStation: Station
   toStation: Station
+  departTime?: string
+  arriveTime?: string
   seatClassCode: string
   seatClassName: string
   passengerName: string
@@ -55,10 +57,39 @@ export interface Ticket {
   travelDate: string
   fromStation: Station
   toStation: Station
+  departTime?: string
+  arriveTime?: string
   seatClassCode: string
   seatClassName: string
+  coachNo: string
+  seatNo: string
   passengerName: string
   idCardNoMasked: string
-  status: 'ISSUED' | string
+  status: 'ISSUED' | 'REFUNDED' | 'CHANGED_OUT' | string
   issuedAt: string
+  refundedAt?: string
+}
+
+export interface RefundResult {
+  refundNo: string
+  ticket: Ticket
+}
+
+export interface ChangeTicketPayload {
+  newTrainId: number
+  newTravelDate: string
+  newSeatClassCode: string
+  idempotencyKey: string
+}
+
+export interface ChangeOptionsResult {
+  originalTicket: Ticket
+  options: TrainSearchItem[]
+}
+
+export interface ChangeResult {
+  changeNo: string
+  priceDiffCents: number
+  oldTicket: Ticket
+  newTicket: Ticket
 }

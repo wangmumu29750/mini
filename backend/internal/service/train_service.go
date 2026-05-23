@@ -2,7 +2,6 @@ package service
 
 import (
 	"net/http"
-	"sort"
 	"time"
 
 	"mini-12306/backend/internal/dto"
@@ -50,64 +49,7 @@ func (s *TrainService) Search(query dto.TrainSearchQuery) ([]dto.TrainSearchItem
 		return nil, err
 	}
 
-	itemsByTrain := make(map[uint64]*dto.TrainSearchItemResponse)
-	for _, row := range rows {
-		item, ok := itemsByTrain[row.TrainID]
-		if !ok {
-			departTime := combineDateClock(date, row.DepartClock, row.DepartDayOffset)
-			arriveTime := combineDateClock(date, row.ArriveClock, row.ArriveDayOffset)
-			duration := int(arriveTime.Sub(departTime).Minutes())
-			if duration < 0 {
-				duration = 0
-			}
-
-			item = &dto.TrainSearchItemResponse{
-				TrainID:    row.TrainID,
-				TrainNo:    row.TrainNo,
-				TravelDate: date.Format("2006-01-02"),
-				FromStation: dto.StationResponse{
-					ID:   row.FromStationID,
-					Name: row.FromStationName,
-				},
-				ToStation: dto.StationResponse{
-					ID:   row.ToStationID,
-					Name: row.ToStationName,
-				},
-				DepartTime:      departTime.Format(time.RFC3339),
-				ArriveTime:      arriveTime.Format(time.RFC3339),
-				DurationMinutes: duration,
-				SeatOptions:     []dto.SeatOptionResponse{},
-			}
-			itemsByTrain[row.TrainID] = item
-		}
-
-		item.SeatOptions = append(item.SeatOptions, dto.SeatOptionResponse{
-			SeatClassCode:  row.SeatClassCode,
-			SeatClassName:  seatClassName(row.SeatClassCode),
-			PriceCents:     row.PriceCents,
-			AvailableCount: row.AvailableCount,
-		})
-	}
-
-	result := make([]dto.TrainSearchItemResponse, 0, len(itemsByTrain))
-	for _, item := range itemsByTrain {
-		result = append(result, *item)
-	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].DepartTime < result[j].DepartTime
-	})
-	return result, nil
-}
-
-func combineDateClock(date time.Time, clock string, dayOffset int) time.Time {
-	if clock == "" {
-		clock = "00:00:00"
-	}
-	parsed, err := time.ParseInLocation("2006-01-02 15:04:05", date.Format("2006-01-02")+" "+clock, time.Local)
-	if err != nil {
-		return date
-	}
-	return parsed.AddDate(0, 0, dayOffset)
+	return trainSearchRowsToResponses(date, rows), nil
 }
 
 func seatClassName(code string) string {

@@ -135,4 +135,7 @@
 - If a pending order is already past `pay_expires_at` when payment is attempted, the service releases the locked inventory and changes the order to `CLOSED`.
 - `POST /orders/{orderId}/cancel` cancels only `PENDING_PAYMENT` orders, releases the locked inventory, and changes the order to `CANCELLED`.
 - The current code treats `PAID` as "paid and ticket issued" for the first runnable vertical slice. Later slices may split this into `PAID -> TICKETED` if asynchronous ticketing is needed.
-- The current ticket slice exposes read-only ticket list/detail APIs. Refund and change operations are intentionally left for later transactional slices.
+- The ticket slice now supports transactional refund and change operations.
+- `POST /tickets/{ticketId}/refund` only accepts `ISSUED` tickets before departure. It marks the ticket `REFUNDED`, releases one sold inventory back to available inventory, creates a successful mock refund record, and closes the related order in one database transaction.
+- `POST /tickets/{ticketId}/change` only accepts `ISSUED` tickets before departure. It marks the old ticket `CHANGED_OUT`, releases old sold inventory, consumes new available inventory, creates a new `ISSUED` ticket, updates the related order snapshot, and writes a successful change record with `price_diff_cents` in one database transaction.
+- Refund fees and real difference-payment collection are not enabled in this coursework slice; difference amounts are recorded for display/audit as simulated change settlement.

@@ -154,8 +154,11 @@
 | from_station_id | 出发站 |
 | to_station_id | 到达站 |
 | seat_class_code | 席别 |
+| coach_no | 车厢号快照，课程级模拟 |
+| seat_no | 座位号快照，课程级模拟 |
 | price_cents | 票价 |
 | status | 车票状态 |
+| refunded_at | 退票完成时间，可空 |
 
 ### payments
 
@@ -260,6 +263,10 @@ Current `orders` fields in code: `order_no`, `user_id`, `train_id`, `train_no`, 
 
 Current `orders` unique indexes: `order_no`; `(user_id, idempotency_key)`.
 
-Current `tickets` fields in code: `ticket_no`, `order_id`, `user_id`, `train_id`, `train_no`, `travel_date`, `from_station_id`, `from_station_name`, `to_station_id`, `to_station_name`, `seat_class_code`, `seat_class_name`, `passenger_name`, `id_card_no`, `status`, `issued_at`.
+Current `tickets` fields in code: `ticket_no`, `order_id`, `user_id`, `train_id`, `train_no`, `travel_date`, `from_station_id`, `from_station_name`, `to_station_id`, `to_station_name`, `seat_class_code`, `seat_class_name`, `coach_no`, `seat_no`, `passenger_name`, `id_card_no`, `status`, `issued_at`, `refunded_at`.
 
 Current `payments` fields in code: `payment_no`, `order_id`, `user_id`, `amount_cents`, `channel`, `status`, `paid_at`.
+
+Current `refunds` fields in code: `refund_no`, `ticket_id`, `payment_id`, `user_id`, `amount_cents`, `status`, `reason`, `idempotency_key`, `refunded_at`.
+
+Current `change_records` fields in code: `change_no`, `old_ticket_id`, `new_ticket_id`, `user_id`, `price_diff_cents`, `status`, `idempotency_key`, `changed_at`.

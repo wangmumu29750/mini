@@ -21,6 +21,8 @@ type OrderResponse struct {
 	TravelDate    string          `json:"travelDate"`
 	FromStation   StationResponse `json:"fromStation"`
 	ToStation     StationResponse `json:"toStation"`
+	DepartTime    string          `json:"departTime,omitempty"`
+	ArriveTime    string          `json:"arriveTime,omitempty"`
 	SeatClassCode string          `json:"seatClassCode"`
 	SeatClassName string          `json:"seatClassName"`
 	PassengerName string          `json:"passengerName"`

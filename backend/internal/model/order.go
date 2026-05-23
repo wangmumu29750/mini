@@ -16,6 +16,8 @@ type Order struct {
 	ToStationName   string      `gorm:"size:64;not null" json:"toStationName"`
 	SeatClassCode   string      `gorm:"size:32;not null" json:"seatClassCode"`
 	SeatClassName   string      `gorm:"size:64;not null" json:"seatClassName"`
+	DepartTime      *time.Time  `gorm:"-" json:"-"`
+	ArriveTime      *time.Time  `gorm:"-" json:"-"`
 	PassengerName   string      `gorm:"size:64;not null" json:"passengerName"`
 	IDCardNo        string      `gorm:"size:32;not null" json:"idCardNo"`
 	AmountCents     int64       `gorm:"not null" json:"amountCents"`

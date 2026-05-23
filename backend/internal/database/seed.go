@@ -1,6 +1,7 @@
 package database
 
 import (
+	"fmt"
 	"time"
 
 	"mini-12306/backend/internal/model"
@@ -21,6 +22,15 @@ type stopSeed struct {
 	ArriveClock string
 	DepartClock string
 	Mileage     int
+}
+
+type routeSeed struct {
+	TrainNo     string
+	TrainType   string
+	Stops       []stopSeed
+	FromStation string
+	ToStation   string
+	Inventories []inventorySeed
 }
 
 func SeedDemoData(db *gorm.DB) error {
@@ -94,9 +104,14 @@ func seedStations(tx *gorm.DB) (map[string]model.Station, error) {
 		{Code: "BJN", Name: "北京南", City: "北京"},
 		{Code: "TJN", Name: "天津南", City: "天津"},
 		{Code: "JNX", Name: "济南西", City: "济南"},
+		{Code: "XZE", Name: "徐州东", City: "徐州"},
 		{Code: "NJH", Name: "南京南", City: "南京"},
+		{Code: "SZB", Name: "苏州北", City: "苏州"},
 		{Code: "SHH", Name: "上海虹桥", City: "上海"},
 		{Code: "HZD", Name: "杭州东", City: "杭州"},
+		{Code: "NGH", Name: "宁波", City: "宁波"},
+		{Code: "HFN", Name: "合肥南", City: "合肥"},
+		{Code: "WHN", Name: "武汉", City: "武汉"},
 	}
 
 	result := make(map[string]model.Station, len(seeds))
@@ -124,49 +139,135 @@ func seedStations(tx *gorm.DB) (map[string]model.Station, error) {
 	}
 	return result, nil
 }
-//bbb
-//分支aaa
+
 func seedTrainWithInventory(tx *gorm.DB, stations map[string]model.Station) error {
-	train, err := findOrCreateTrain(tx, "G101", "G")
-	if err != nil {
-		return err
+	for _, seed := range demoTrainSeeds() {
+		train, err := findOrCreateTrain(tx, seed.TrainNo, seed.TrainType)
+		if err != nil {
+			return err
+		}
+		if err := seedStops(tx, train.ID, stations, seed.Stops); err != nil {
+			return err
+		}
+		if err := seedInventories(tx, train.ID, stations[seed.FromStation].ID, stations[seed.ToStation].ID, seed.Inventories); err != nil {
+			return err
+		}
 	}
-	if err := seedStops(tx, train.ID, stations, []stopSeed{
-		{StationCode: "BJN", Order: 1, ArriveClock: "", DepartClock: "08:00:00", Mileage: 0},
-		{StationCode: "TJN", Order: 2, ArriveClock: "08:32:00", DepartClock: "08:35:00", Mileage: 122},
-		{StationCode: "JNX", Order: 3, ArriveClock: "09:48:00", DepartClock: "09:52:00", Mileage: 406},
-		{StationCode: "NJH", Order: 4, ArriveClock: "11:52:00", DepartClock: "11:56:00", Mileage: 1023},
-		{StationCode: "SHH", Order: 5, ArriveClock: "13:30:00", DepartClock: "", Mileage: 1318},
-	}); err != nil {
-		return err
-	}
-	if err := seedInventories(tx, train.ID, stations["BJN"].ID, stations["SHH"].ID, []inventorySeed{
-		{SeatClassCode: "SECOND", PriceCents: 55300, TotalCount: 80, AvailableCount: 32},
-		{SeatClassCode: "FIRST", PriceCents: 93300, TotalCount: 32, AvailableCount: 10},
-		{SeatClassCode: "BUSINESS", PriceCents: 174800, TotalCount: 8, AvailableCount: 3},
-	}); err != nil {
-		return err
+	return nil
+}
+
+func demoTrainSeeds() []routeSeed {
+	seeds := []routeSeed{
+		{
+			TrainNo: "G101", TrainType: "G", FromStation: "BJN", ToStation: "SHH",
+			Stops: []stopSeed{
+				{StationCode: "BJN", Order: 1, ArriveClock: "", DepartClock: "08:00:00", Mileage: 0},
+				{StationCode: "TJN", Order: 2, ArriveClock: "08:32:00", DepartClock: "08:35:00", Mileage: 122},
+				{StationCode: "JNX", Order: 3, ArriveClock: "09:48:00", DepartClock: "09:52:00", Mileage: 406},
+				{StationCode: "NJH", Order: 4, ArriveClock: "11:52:00", DepartClock: "11:56:00", Mileage: 1023},
+				{StationCode: "SHH", Order: 5, ArriveClock: "13:30:00", DepartClock: "", Mileage: 1318},
+			},
+			Inventories: []inventorySeed{
+				{SeatClassCode: "SECOND", PriceCents: 55300, TotalCount: 80, AvailableCount: 32},
+				{SeatClassCode: "FIRST", PriceCents: 93300, TotalCount: 32, AvailableCount: 10},
+				{SeatClassCode: "BUSINESS", PriceCents: 174800, TotalCount: 8, AvailableCount: 3},
+			},
+		},
+		{
+			TrainNo: "G137", TrainType: "G", FromStation: "BJN", ToStation: "HZD",
+			Stops: []stopSeed{
+				{StationCode: "BJN", Order: 1, ArriveClock: "", DepartClock: "14:10:00", Mileage: 0},
+				{StationCode: "JNX", Order: 2, ArriveClock: "15:58:00", DepartClock: "16:03:00", Mileage: 406},
+				{StationCode: "NJH", Order: 3, ArriveClock: "18:06:00", DepartClock: "18:11:00", Mileage: 1023},
+				{StationCode: "SHH", Order: 4, ArriveClock: "19:38:00", DepartClock: "19:45:00", Mileage: 1318},
+				{StationCode: "HZD", Order: 5, ArriveClock: "20:36:00", DepartClock: "", Mileage: 1477},
+			},
+			Inventories: []inventorySeed{
+				{SeatClassCode: "SECOND", PriceCents: 62400, TotalCount: 96, AvailableCount: 46},
+				{SeatClassCode: "FIRST", PriceCents: 101800, TotalCount: 42, AvailableCount: 18},
+			},
+		},
 	}
 
-	train2, err := findOrCreateTrain(tx, "G137", "G")
-	if err != nil {
-		return err
+	patterns := []struct {
+		prefix string
+		start  int
+		count  int
+		route  []string
+		miles  []int
+	}{
+		{prefix: "G", start: 201, count: 10, route: []string{"BJN", "TJN", "JNX", "XZE", "NJH", "SZB", "SHH", "HZD"}, miles: []int{0, 122, 406, 692, 1023, 1192, 1318, 1477}},
+		{prefix: "G", start: 302, count: 10, route: []string{"SHH", "SZB", "NJH", "XZE", "JNX", "TJN", "BJN"}, miles: []int{0, 126, 295, 626, 912, 1196, 1318}},
+		{prefix: "D", start: 501, count: 10, route: []string{"BJN", "JNX", "XZE", "NJH", "HFN", "WHN"}, miles: []int{0, 406, 692, 1023, 1180, 1540}},
+		{prefix: "D", start: 602, count: 10, route: []string{"WHN", "HFN", "NJH", "SZB", "SHH", "NGH"}, miles: []int{0, 360, 517, 686, 812, 1126}},
+		{prefix: "K", start: 701, count: 10, route: []string{"HZD", "SHH", "SZB", "NJH", "HFN", "WHN"}, miles: []int{0, 159, 285, 454, 611, 971}},
 	}
-	if err := seedStops(tx, train2.ID, stations, []stopSeed{
-		{StationCode: "BJN", Order: 1, ArriveClock: "", DepartClock: "14:10:00", Mileage: 0},
-		{StationCode: "JNX", Order: 2, ArriveClock: "15:58:00", DepartClock: "16:03:00", Mileage: 406},
-		{StationCode: "NJH", Order: 3, ArriveClock: "18:06:00", DepartClock: "18:11:00", Mileage: 1023},
-		{StationCode: "SHH", Order: 4, ArriveClock: "19:38:00", DepartClock: "19:45:00", Mileage: 1318},
-		{StationCode: "HZD", Order: 5, ArriveClock: "20:36:00", DepartClock: "", Mileage: 1477},
-	}); err != nil {
-		return err
+
+	for _, pattern := range patterns {
+		for i := 0; i < pattern.count; i++ {
+			baseMinutes := 6*60 + i*42
+			trainNo := fmt.Sprintf("%s%d", pattern.prefix, pattern.start+i*2)
+			seeds = append(seeds, routeSeed{
+				TrainNo:     trainNo,
+				TrainType:   pattern.prefix,
+				Stops:       buildStops(pattern.route, pattern.miles, baseMinutes),
+				FromStation: pattern.route[0],
+				ToStation:   pattern.route[len(pattern.route)-1],
+				Inventories: buildInventories(pattern.prefix, pattern.miles[len(pattern.miles)-1], i),
+			})
+		}
 	}
-	return seedInventories(tx, train2.ID, stations["BJN"].ID, stations["HZD"].ID, []inventorySeed{
-		{SeatClassCode: "SECOND", PriceCents: 62400, TotalCount: 96, AvailableCount: 46},
-		{SeatClassCode: "FIRST", PriceCents: 101800, TotalCount: 42, AvailableCount: 18},
-	})
+
+	return seeds
 }
-//niubi
+
+func buildStops(stations []string, miles []int, baseMinutes int) []stopSeed {
+	stops := make([]stopSeed, 0, len(stations))
+	for i, stationCode := range stations {
+		arriveClock := ""
+		departClock := ""
+		stopMinutes := baseMinutes + i*48 + i*i*4
+		if i > 0 {
+			arriveClock = clockText(stopMinutes)
+		}
+		if i < len(stations)-1 {
+			departClock = clockText(stopMinutes + 4)
+			if i == 0 {
+				departClock = clockText(baseMinutes)
+			}
+		}
+		stops = append(stops, stopSeed{
+			StationCode: stationCode,
+			Order:       i + 1,
+			ArriveClock: arriveClock,
+			DepartClock: departClock,
+			Mileage:     miles[i],
+		})
+	}
+	return stops
+}
+
+func clockText(minutes int) string {
+	minutes = minutes % (24 * 60)
+	return fmt.Sprintf("%02d:%02d:00", minutes/60, minutes%60)
+}
+
+func buildInventories(trainType string, mileage int, index int) []inventorySeed {
+	secondPrice := int64(mileage*42 + index*180)
+	if trainType == "K" {
+		secondPrice = int64(mileage*18 + index*80)
+		return []inventorySeed{
+			{SeatClassCode: "HARD_SEAT", PriceCents: secondPrice, TotalCount: 120, AvailableCount: 70 - index%18},
+			{SeatClassCode: "HARD_SLEEPER", PriceCents: secondPrice * 2, TotalCount: 72, AvailableCount: 36 - index%10},
+		}
+	}
+	return []inventorySeed{
+		{SeatClassCode: "SECOND", PriceCents: secondPrice, TotalCount: 120, AvailableCount: 72 - index%20},
+		{SeatClassCode: "FIRST", PriceCents: secondPrice * 16 / 10, TotalCount: 48, AvailableCount: 24 - index%12},
+		{SeatClassCode: "BUSINESS", PriceCents: secondPrice * 28 / 10, TotalCount: 12, AvailableCount: 6 - index%4},
+	}
+}
+
 func findOrCreateTrain(tx *gorm.DB, trainNo string, trainType string) (model.Train, error) {
 	var train model.Train
 	err := tx.Where("train_no = ?", trainNo).First(&train).Error

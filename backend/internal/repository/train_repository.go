@@ -42,8 +42,12 @@ func (r *TrainRepository) ListActiveStations() ([]model.Station, error) {
 }
 
 func (r *TrainRepository) SearchAvailableTrains(date time.Time, fromStationID, toStationID uint64) ([]TrainSearchRow, error) {
+	return SearchAvailableTrains(r.db, date, fromStationID, toStationID)
+}
+
+func SearchAvailableTrains(db *gorm.DB, date time.Time, fromStationID, toStationID uint64) ([]TrainSearchRow, error) {
 	var rows []TrainSearchRow
-	err := r.db.Table("inventories AS i").
+	err := db.Table("inventories AS i").
 		Select(`
 			t.id AS train_id,
 			t.train_no,

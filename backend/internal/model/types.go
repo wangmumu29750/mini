@@ -57,8 +57,22 @@ const (
 	PaymentStatusSuccess PaymentStatus = "SUCCESS"
 )
 
+type RefundStatus string
+
+const (
+	RefundStatusSuccess RefundStatus = "SUCCESS"
+)
+
+type ChangeStatus string
+
+const (
+	ChangeStatusSuccess ChangeStatus = "SUCCESS"
+)
+
 type TicketStatus string
 
 const (
-	TicketStatusIssued TicketStatus = "ISSUED"
+	TicketStatusIssued     TicketStatus = "ISSUED"
+	TicketStatusRefunded   TicketStatus = "REFUNDED"
+	TicketStatusChangedOut TicketStatus = "CHANGED_OUT"
 )

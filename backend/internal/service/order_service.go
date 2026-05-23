@@ -215,6 +215,8 @@ func (s *OrderService) Pay(userID, orderID uint64, req dto.PayOrderRequest) (dto
 			ToStationName:   order.ToStationName,
 			SeatClassCode:   order.SeatClassCode,
 			SeatClassName:   order.SeatClassName,
+			CoachNo:         makeCoachNo(row.SoldCount + 1),
+			SeatNo:          makeSeatNo(row.SoldCount + 1),
 			PassengerName:   order.PassengerName,
 			IDCardNo:        order.IDCardNo,
 			Status:          model.TicketStatusIssued,
@@ -305,6 +307,12 @@ func orderResponse(order model.Order) dto.OrderResponse {
 		Status:        string(order.Status),
 		PayExpiresAt:  order.PayExpiresAt.Format(time.RFC3339),
 		PaidAt:        paidAt,
+	}
+	if order.DepartTime != nil {
+		result.DepartTime = order.DepartTime.Format(time.RFC3339)
+	}
+	if order.ArriveTime != nil {
+		result.ArriveTime = order.ArriveTime.Format(time.RFC3339)
 	}
 	if len(order.Tickets) > 0 {
 		result.TicketNo = order.Tickets[0].TicketNo

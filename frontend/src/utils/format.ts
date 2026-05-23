@@ -16,6 +16,18 @@ export function formatDateTime(value: string) {
   }).format(new Date(value))
 }
 
+export function formatTime(value?: string) {
+  if (!value) {
+    return '--:--'
+  }
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(value))
+}
+
 export function formatDuration(minutes: number) {
   const hours = Math.floor(minutes / 60)
   const restMinutes = minutes % 60
@@ -26,4 +38,3 @@ export function formatDuration(minutes: number) {
 
   return `${hours}小时${restMinutes}分钟`
 }
-
