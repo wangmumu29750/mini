@@ -1,0 +1,30 @@
+---
+description: Mini-12306 course project rules for Vue 3, TailwindCSS, Go, Gin, GORM, and MySQL.
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Mini-12306 Rules
+
+This repository is the Mini-12306 course project. Before answering design or coding questions, read `AGENTS.md` and the relevant files under `docs/`.
+
+Hard constraints:
+
+- Frontend: Vue 3 + Vite + TypeScript + TailwindCSS.
+- Backend: Go + Gin + GORM + MySQL.
+- Keep the scope aligned with the provided Mini-12306 PDF and `docs/01-project-plan.md`.
+- Do not expand the system into full real-world 12306 unless explicitly requested.
+- Put business rules in the backend service layer, not only in frontend checks.
+- Use transactions for order creation, payment ticketing, cancellation, refund, and change.
+- Store money as integer cents. Use clear timezone semantics and display times in Asia/Shanghai.
+- Update `docs/06-api-contract.md` when APIs change.
+- Update `docs/07-database-design.md` when database tables or fields change.
+- Update `docs/02-requirements-and-domain-rules.md` when business rules or state machines change.
+
+Preferred implementation shape:
+
+- Backend layers: handler -> service -> repository -> model.
+- Frontend layers: pages -> components/composables/stores -> api.
+- API prefix: `/api/v1`.
+- Response shape: `{ code, message, data, traceId }`.
+- Roles: `PASSENGER` and `ADMIN`.
