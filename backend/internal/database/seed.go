@@ -125,6 +125,7 @@ func seedStations(tx *gorm.DB) (map[string]model.Station, error) {
 	return result, nil
 }
 //bbb
+//分支aaa
 func seedTrainWithInventory(tx *gorm.DB, stations map[string]model.Station) error {
 	train, err := findOrCreateTrain(tx, "G101", "G")
 	if err != nil {
