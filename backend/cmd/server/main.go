@@ -10,7 +10,7 @@ import (
 
 func main() {
 	cfg := config.Load()
-//cl到此一游
+
 	db, err := database.Connect(cfg)
 	if err != nil {
 		log.Fatalf("connect database: %v", err)
