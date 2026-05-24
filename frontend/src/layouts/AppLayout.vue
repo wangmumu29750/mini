@@ -59,11 +59,10 @@ async function handleLogout() {
           :key="item.to"
           :to="item.to"
           class="group flex items-center gap-3 rounded-lg px-4 py-3 text-base font-bold text-slate-500 transition hover:bg-teal-50 hover:text-teal-600"
-          active-class="bg-teal-50 text-teal-600 shadow-sm"
+          exact-active-class="bg-teal-50 text-teal-600 shadow-sm"
         >
           <span class="text-2xl leading-none">{{ item.icon }}</span>
           <span>{{ item.label }}</span>
-          <span v-if="item.badge" class="ml-auto rounded-full bg-rose-500 px-2 py-0.5 text-xs text-white">{{ item.badge }}</span>
         </RouterLink>
       </nav>
     </aside>
@@ -82,7 +81,7 @@ async function handleLogout() {
               :key="item.to"
               :to="item.to"
               class="whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold text-slate-500"
-              active-class="bg-teal-50 text-teal-700"
+              exact-active-class="bg-teal-50 text-teal-700"
             >
               {{ item.label }}
             </RouterLink>
@@ -116,7 +115,7 @@ async function handleLogout() {
             :key="item.to"
             :to="item.to"
             class="whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold text-slate-500"
-            active-class="bg-teal-50 text-teal-700"
+            exact-active-class="bg-teal-50 text-teal-700"
           >
             {{ item.label }}
           </RouterLink>

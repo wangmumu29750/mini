@@ -17,6 +17,7 @@ const optionLoading = ref(false)
 const refundingId = ref<number | null>(null)
 const changingId = ref<number | null>(null)
 const changeTicketId = ref<number | null>(null)
+const qrTicketId = ref<number | null>(null)
 const errorMessage = ref('')
 const successMessage = ref('')
 const statusFilter = ref('ALL')
@@ -28,6 +29,26 @@ const changeForm = reactive({
 })
 
 const selectedTicket = computed(() => tickets.value.find((ticket) => ticket.id === changeTicketId.value) || null)
+const qrTicket = computed(() => tickets.value.find((ticket) => ticket.id === qrTicketId.value) || null)
+const qrVerifyPayload = computed(() => {
+  if (!qrTicket.value) {
+    return ''
+  }
+
+  const ticket = qrTicket.value
+  return [
+    'MINI12306',
+    ticket.ticketNo,
+    ticket.trainNo,
+    ticket.travelDate,
+    ticket.fromStation.name,
+    ticket.toStation.name,
+    ticket.coachNo,
+    ticket.seatNo,
+    ticket.idCardNoMasked,
+    ticket.status,
+  ].join('|')
+})
 const selectedChangeTrain = computed(() => changeOptions.value.find((train) => String(train.trainId) === changeForm.trainId) || null)
 const selectedSeat = computed(() => selectedChangeTrain.value?.seatOptions.find((seat) => seat.seatClassCode === changeForm.seatClassCode) || null)
 const filteredTickets = computed(() => {
@@ -96,6 +117,10 @@ async function openChange(ticket: Ticket) {
   await loadChangeOptions(ticket)
 }
 
+function openQr(ticket: Ticket) {
+  qrTicketId.value = ticket.id
+}
+
 async function loadChangeOptions(ticket = selectedTicket.value) {
   if (!ticket) return
   optionLoading.value = true
@@ -155,6 +180,10 @@ async function handleChange() {
 function closeChange() {
   changeTicketId.value = null
   changeOptions.value = []
+}
+
+function closeQr() {
+  qrTicketId.value = null
 }
 
 function statusText(status: string) {
@@ -256,16 +285,19 @@ function canOperate(ticket: Ticket) {
             </div>
 
             <div class="mt-6 flex flex-wrap items-end justify-between gap-4 border-t border-slate-100 pt-5">
-              <div>
-                <div class="h-10 w-36 bg-[repeating-linear-gradient(90deg,#94a3b8_0,#94a3b8_2px,transparent_2px,transparent_5px)] opacity-60"></div>
+              <button class="group text-left" type="button" :disabled="!canOperate(ticket)" @click="openQr(ticket)">
+                <div
+                  class="h-10 w-36 bg-[repeating-linear-gradient(90deg,#94a3b8_0,#94a3b8_2px,transparent_2px,transparent_5px)] opacity-60 transition group-hover:opacity-90"
+                  :class="canOperate(ticket) ? 'cursor-pointer' : 'cursor-not-allowed'"
+                ></div>
                 <div class="mt-1 text-center text-xs font-bold text-slate-300">{{ ticket.ticketNo }}</div>
-              </div>
+              </button>
               <div class="flex flex-wrap gap-3">
                 <button class="btn-secondary" type="button" :disabled="!canOperate(ticket) || refundingId === ticket.id" @click="handleRefund(ticket)">
                   {{ refundingId === ticket.id ? '退票中...' : '退票' }}
                 </button>
                 <button class="btn-primary bg-slate-950 hover:bg-slate-800" type="button" :disabled="!canOperate(ticket)" @click="openChange(ticket)">
-                  验签二维码 / 改签
+                  改签
                 </button>
               </div>
             </div>
@@ -275,6 +307,55 @@ function canOperate(ticket: Ticket) {
 
       <EmptyState v-else title="暂无车票" description="订单完成模拟支付后，已出票车票会显示在这里。" />
     </section>
+
+    <div v-if="qrTicket" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+      <div class="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 class="text-2xl font-black text-slate-950">验签二维码</h2>
+            <p class="mt-1 text-sm font-medium text-slate-500">
+              {{ qrTicket.trainNo }} {{ qrTicket.fromStation.name }} → {{ qrTicket.toStation.name }}
+            </p>
+          </div>
+          <button class="rounded-lg px-3 py-2 text-slate-400 hover:bg-slate-100" type="button" @click="closeQr">关闭</button>
+        </div>
+
+        <div class="mt-6 flex flex-col items-center">
+          <div class="grid h-56 w-56 grid-cols-8 grid-rows-8 gap-1 rounded-lg border border-slate-200 bg-white p-4">
+            <div
+              v-for="index in 64"
+              :key="index"
+              class="rounded-[2px]"
+              :class="qrVerifyPayload.charCodeAt((index - 1) % qrVerifyPayload.length) % 3 === 0 ? 'bg-slate-950' : 'bg-slate-100'"
+            ></div>
+          </div>
+          <div class="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-700">有效电子验票码</div>
+        </div>
+
+        <div class="mt-5 grid gap-3 rounded-lg bg-slate-50 p-4 text-sm font-bold text-slate-600">
+          <div class="flex justify-between gap-4">
+            <span class="text-slate-400">票号</span>
+            <span class="text-right text-slate-700">{{ qrTicket.ticketNo }}</span>
+          </div>
+          <div class="flex justify-between gap-4">
+            <span class="text-slate-400">乘车人</span>
+            <span class="text-right text-slate-700">{{ qrTicket.passengerName }} {{ qrTicket.idCardNoMasked }}</span>
+          </div>
+          <div class="flex justify-between gap-4">
+            <span class="text-slate-400">席位</span>
+            <span class="text-right text-slate-700">{{ qrTicket.seatClassName }} {{ qrTicket.coachNo }}车 {{ qrTicket.seatNo }}</span>
+          </div>
+          <div class="flex justify-between gap-4">
+            <span class="text-slate-400">签发时间</span>
+            <span class="text-right text-slate-700">{{ formatDateTime(qrTicket.issuedAt) }}</span>
+          </div>
+        </div>
+
+        <div class="mt-4 break-all rounded-lg border border-dashed border-slate-200 p-3 text-xs font-bold text-slate-400">
+          {{ qrVerifyPayload }}
+        </div>
+      </div>
+    </div>
 
     <div v-if="selectedTicket" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
       <div class="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl">
