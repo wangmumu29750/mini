@@ -31,3 +31,26 @@ func AuthRequired(jwtSecret string) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+func RoleRequired(roles ...string) gin.HandlerFunc {
+	allowed := make(map[string]bool, len(roles))
+	for _, role := range roles {
+		allowed[role] = true
+	}
+
+	return func(c *gin.Context) {
+		principal, ok := c.Get(requestctx.CurrentUserKey)
+		if !ok {
+			response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "璇峰厛鐧诲綍")
+			c.Abort()
+			return
+		}
+		user, ok := principal.(auth.Principal)
+		if !ok || !allowed[user.Role] {
+			response.Error(c, http.StatusForbidden, response.CodeForbidden, "鏃犳潈闄?")
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}

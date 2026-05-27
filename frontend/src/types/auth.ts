@@ -1,4 +1,4 @@
-export type UserRole = 'PASSENGER' | 'ADMIN'
+export type UserRole = 'PASSENGER' | 'CLERK' | 'ADMIN'
 
 export interface CurrentUser {
   id: number
@@ -24,4 +24,3 @@ export interface RegisterRequest {
   phone: string
   bankCardNo: string
 }
-

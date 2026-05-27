@@ -160,7 +160,8 @@ func (s *TicketService) Refund(userID, ticketID uint64, req dto.RefundTicketRequ
 		if err != nil {
 			return err
 		}
-		if !departTime.After(time.Now()) {
+		cutoffMinutes := systemSettingInt(tx, "refund_cutoff_minutes", 0)
+		if !departTime.After(time.Now().Add(time.Duration(cutoffMinutes) * time.Minute)) {
 			return apperrors.New(http.StatusConflict, response.CodeTicketNotRefundable, "已发车车票不可退")
 		}
 
@@ -271,7 +272,8 @@ func (s *TicketService) Change(userID, ticketID uint64, req dto.ChangeTicketRequ
 		if err != nil {
 			return err
 		}
-		if !oldDepartTime.After(time.Now()) {
+		cutoffMinutes := systemSettingInt(tx, "change_cutoff_minutes", 0)
+		if !oldDepartTime.After(time.Now().Add(time.Duration(cutoffMinutes) * time.Minute)) {
 			return apperrors.New(http.StatusConflict, response.CodeTicketNotChangeable, "已发车车票不可改签")
 		}
 		if ticket.TrainID == req.NewTrainID && ticket.TravelDate.Equal(newDate) && ticket.SeatClassCode == req.NewSeatClassCode {

@@ -40,18 +40,30 @@ const routes: RouteRecordRaw[] = [
         path: 'orders',
         name: 'orders',
         component: () => import('@/pages/OrdersPage.vue'),
-        meta: { requiresAuth: true, roles: ['PASSENGER', 'ADMIN'] },
+        meta: { requiresAuth: true, roles: ['PASSENGER'] },
       },
       {
         path: 'tickets',
         name: 'tickets',
         component: () => import('@/pages/TicketsPage.vue'),
-        meta: { requiresAuth: true, roles: ['PASSENGER', 'ADMIN'] },
+        meta: { requiresAuth: true, roles: ['PASSENGER'] },
+      },
+      {
+        path: 'clerk',
+        name: 'clerk',
+        component: () => import('@/pages/ClerkWorkspacePage.vue'),
+        meta: { requiresAuth: true, roles: ['CLERK', 'ADMIN'] },
       },
       {
         path: 'admin',
         name: 'admin',
         component: () => import('@/pages/AdminDashboardPage.vue'),
+        meta: { requiresAuth: true, roles: ['ADMIN'] },
+      },
+      {
+        path: 'admin/settings',
+        name: 'admin-settings',
+        component: () => import('@/pages/AdminSettingsPage.vue'),
         meta: { requiresAuth: true, roles: ['ADMIN'] },
       },
       {
@@ -72,6 +84,12 @@ const router = createRouter({
   routes,
 })
 
+function homeRouteForRole(role: UserRole | null) {
+  if (role === 'ADMIN') return { name: 'admin' }
+  if (role === 'CLERK') return { name: 'clerk' }
+  return { name: 'train-search' }
+}
+
 router.beforeEach((to) => {
   const authStore = useAuthStore()
 
@@ -86,12 +104,15 @@ router.beforeEach((to) => {
     return { name: 'forbidden' }
   }
 
+  if (to.name === 'train-search' && (authStore.role === 'ADMIN' || authStore.role === 'CLERK')) {
+    return homeRouteForRole(authStore.role)
+  }
+
   if (to.name === 'login' && authStore.isAuthenticated) {
-    return { name: 'train-search' }
+    return homeRouteForRole(authStore.role)
   }
 
   return true
 })
 
 export default router
-

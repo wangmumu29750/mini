@@ -132,6 +132,7 @@ async function handleBook(train: TrainSearchItem, seat: SeatOption) {
       seatClassCode: seat.seatClassCode,
       idempotencyKey: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     })
+    decrementSeatAvailability(train, seat)
     successMessage.value = '订单已创建，请在订单页完成模拟支付。'
     await notificationStore.refresh()
     await router.push({ name: 'orders' })
@@ -146,6 +147,26 @@ function swapStations() {
   const from = query.fromStationId
   query.fromStationId = query.toStationId
   query.toStationId = from
+}
+
+function decrementSeatAvailability(train: TrainSearchItem, seat: SeatOption) {
+  trains.value = trains.value.map((item) => {
+    if (item.trainId !== train.trainId || item.travelDate !== train.travelDate) {
+      return item
+    }
+    return {
+      ...item,
+      seatOptions: item.seatOptions.map((option) => {
+        if (option.seatClassCode !== seat.seatClassCode) {
+          return option
+        }
+        return {
+          ...option,
+          availableCount: Math.max(option.availableCount - 1, 0),
+        }
+      }),
+    }
+  })
 }
 
 async function selectQuickDate(date: string) {

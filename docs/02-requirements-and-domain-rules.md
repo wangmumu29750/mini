@@ -139,3 +139,6 @@
 - `POST /tickets/{ticketId}/refund` only accepts `ISSUED` tickets before departure. It marks the ticket `REFUNDED`, releases one sold inventory back to available inventory, creates a successful mock refund record, and closes the related order in one database transaction.
 - `POST /tickets/{ticketId}/change` only accepts `ISSUED` tickets before departure. It marks the old ticket `CHANGED_OUT`, releases old sold inventory, consumes new available inventory, creates a new `ISSUED` ticket, updates the related order snapshot, and writes a successful change record with `price_diff_cents` in one database transaction.
 - Refund fees and real difference-payment collection are not enabled in this coursework slice; difference amounts are recorded for display/audit as simulated change settlement.
+- User roles now include `PASSENGER`, `CLERK`, and `ADMIN`.
+- `CLERK` users can create ticket orders for walk-up passengers through the backend service layer. The clerk flow must still verify passenger identity, lock inventory, use an idempotency key, and leave payment/order state transitions to the existing order service.
+- Administrators can maintain system parameters through `SystemSetting`. The current implemented settings are `order_pay_expire_minutes`, `refund_cutoff_minutes`, `change_cutoff_minutes`, `refund_fee_percent`, and `mock_payment_enabled`.

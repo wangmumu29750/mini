@@ -246,6 +246,13 @@
 - `orders(user_id, created_at)`
 - `orders.order_no`
 - `tickets(user_id, travel_date)`
+
+## 4. Current Implementation Notes
+
+- `users.role` now supports `PASSENGER`, `CLERK`, and `ADMIN`.
+- The `system_settings` table is implemented by the `SystemSetting` model with columns `key`, `value`, `value_type`, and `description`.
+- Default system settings are seeded lazily by the settings service: `order_pay_expire_minutes`, `refund_cutoff_minutes`, `change_cutoff_minutes`, `refund_fee_percent`, and `mock_payment_enabled`.
+- Clerk-created orders are stored in the same `orders` table and reuse the order/inventory transaction rules. The `user_id` is the clerk account that created the order, while passenger name and ID card snapshots are stored on the order/ticket records.
 - `tickets.ticket_no`
 - `payments.payment_no`
 - `payments(order_id, idempotency_key)`

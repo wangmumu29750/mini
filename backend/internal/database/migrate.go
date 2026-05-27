@@ -19,5 +19,6 @@ func Migrate(db *gorm.DB) error {
 		&model.Ticket{},
 		&model.Refund{},
 		&model.ChangeRecord{},
+		&model.SystemSetting{},
 	)
 }

@@ -44,6 +44,29 @@ func (h *OrderHandler) Create(c *gin.Context) {
 	response.OK(c, result)
 }
 
+func (h *OrderHandler) ClerkCreate(c *gin.Context) {
+	principal, ok := currentPrincipal(c)
+	if !ok {
+		return
+	}
+
+	var req dto.ClerkCreateOrderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeValidationError, "售票下单信息不完整")
+		return
+	}
+	if req.IdempotencyKey == "" {
+		req.IdempotencyKey = c.GetHeader("Idempotency-Key")
+	}
+
+	result, err := h.orders.ClerkCreate(principal.UserID, req)
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	response.OK(c, result)
+}
+
 func (h *OrderHandler) List(c *gin.Context) {
 	principal, ok := currentPrincipal(c)
 	if !ok {

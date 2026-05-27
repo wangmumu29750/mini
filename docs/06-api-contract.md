@@ -318,6 +318,55 @@ Ticket response:
 }
 ```
 
+## 11. Current Implemented Clerk and Settings API Notes
+
+Implemented clerk/admin endpoints:
+
+| Method | Path | Role | Description |
+| --- | --- | --- | --- |
+| POST | `/clerk/orders` | `CLERK` / `ADMIN` | Create an order for a walk-up passenger and lock inventory |
+| GET | `/admin/settings` | `ADMIN` | List system settings |
+| PUT | `/admin/settings` | `ADMIN` | Update supported system settings |
+
+Clerk order request:
+
+```json
+{
+  "trainId": 1,
+  "travelDate": "2026-05-25",
+  "fromStationId": 1,
+  "toStationId": 5,
+  "seatClassCode": "SECOND",
+  "passengerName": "张三",
+  "idCardNo": "110101199001011234",
+  "phone": "13800138000",
+  "bankCardNo": "6222020202020202020",
+  "idempotencyKey": "uuid-from-client"
+}
+```
+
+System setting item:
+
+```json
+{
+  "key": "order_pay_expire_minutes",
+  "value": "15",
+  "valueType": "INT",
+  "description": "Order payment timeout in minutes"
+}
+```
+
+Update settings request:
+
+```json
+{
+  "settings": [
+    {"key": "order_pay_expire_minutes", "value": "20"},
+    {"key": "mock_payment_enabled", "value": "true"}
+  ]
+}
+```
+
 Refund response data:
 
 ```json

@@ -4,6 +4,7 @@ type UserRole string
 
 const (
 	UserRolePassenger UserRole = "PASSENGER"
+	UserRoleClerk     UserRole = "CLERK"
 	UserRoleAdmin     UserRole = "ADMIN"
 )
 

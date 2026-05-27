@@ -22,6 +22,26 @@ export interface TrainSearchItem {
   seatOptions: SeatOption[]
 }
 
+export interface ClerkCreateOrderPayload {
+  trainId: number
+  travelDate: string
+  fromStationId: number
+  toStationId: number
+  seatClassCode: string
+  idempotencyKey: string
+  passengerName: string
+  idCardNo: string
+  phone: string
+  bankCardNo: string
+}
+
+export interface SystemSetting {
+  key: string
+  value: string
+  valueType: 'INT' | 'BOOL' | 'STRING' | string
+  description: string
+}
+
 export interface Order {
   id: number
   orderNo: string

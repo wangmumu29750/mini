@@ -4,6 +4,7 @@ import (
 	"mini-12306/backend/internal/config"
 	"mini-12306/backend/internal/handler"
 	"mini-12306/backend/internal/middleware"
+	"mini-12306/backend/internal/model"
 	"mini-12306/backend/internal/repository"
 	"mini-12306/backend/internal/service"
 
@@ -31,14 +32,17 @@ func New(cfg config.Config, db *gorm.DB) *gin.Engine {
 		trainRepo := repository.NewTrainRepository(db)
 		orderRepo := repository.NewOrderRepository(db)
 		ticketRepo := repository.NewTicketRepository(db)
+		settingRepo := repository.NewSystemSettingRepository(db)
 		authService := service.NewAuthService(cfg, userRepo)
 		trainService := service.NewTrainService(trainRepo)
 		orderService := service.NewOrderService(cfg, orderRepo)
 		ticketService := service.NewTicketService(ticketRepo)
+		settingService := service.NewSystemSettingService(settingRepo)
 		authHandler := handler.NewAuthHandler(authService)
 		trainHandler := handler.NewTrainHandler(trainService)
 		orderHandler := handler.NewOrderHandler(orderService)
 		ticketHandler := handler.NewTicketHandler(ticketService)
+		settingHandler := handler.NewSystemSettingHandler(settingService)
 
 		authGroup := api.Group("/auth")
 		{
@@ -67,6 +71,17 @@ func New(cfg config.Config, db *gorm.DB) *gin.Engine {
 			ticketGroup.GET("/:id/change-options", ticketHandler.ChangeOptions)
 			ticketGroup.POST("/:id/refund", ticketHandler.Refund)
 			ticketGroup.POST("/:id/change", ticketHandler.Change)
+		}
+
+		clerkGroup := api.Group("/clerk", middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired(string(model.UserRoleClerk), string(model.UserRoleAdmin)))
+		{
+			clerkGroup.POST("/orders", orderHandler.ClerkCreate)
+		}
+
+		adminGroup := api.Group("/admin", middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired(string(model.UserRoleAdmin)))
+		{
+			adminGroup.GET("/settings", settingHandler.List)
+			adminGroup.PUT("/settings", settingHandler.Update)
 		}
 	}
 

@@ -12,6 +12,7 @@ import (
 	"mini-12306/backend/internal/model"
 	"mini-12306/backend/internal/repository"
 	apperrors "mini-12306/backend/pkg/errors"
+	"mini-12306/backend/pkg/mock"
 	"mini-12306/backend/pkg/response"
 
 	"gorm.io/gorm"
@@ -28,6 +29,30 @@ func NewOrderService(cfg config.Config, orders *repository.OrderRepository) *Ord
 }
 
 func (s *OrderService) Create(userID uint64, req dto.CreateOrderRequest) (dto.OrderResponse, error) {
+	return s.create(userID, req, nil)
+}
+
+func (s *OrderService) ClerkCreate(clerkUserID uint64, req dto.ClerkCreateOrderRequest) (dto.OrderResponse, error) {
+	req.PassengerName = strings.TrimSpace(req.PassengerName)
+	req.IDCardNo = strings.TrimSpace(req.IDCardNo)
+	req.Phone = strings.TrimSpace(req.Phone)
+	req.BankCardNo = strings.TrimSpace(req.BankCardNo)
+
+	if err := mock.VerifyIdentity(req.PassengerName, req.IDCardNo, req.Phone, req.BankCardNo); err != nil {
+		return dto.OrderResponse{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, err.Error())
+	}
+
+	passenger := &model.PassengerProfile{
+		RealName:       req.PassengerName,
+		IDCardNo:       req.IDCardNo,
+		Phone:          req.Phone,
+		BankCardNo:     req.BankCardNo,
+		VerifiedStatus: model.VerificationStatusVerified,
+	}
+	return s.create(clerkUserID, req.CreateOrderRequest, passenger)
+}
+
+func (s *OrderService) create(userID uint64, req dto.CreateOrderRequest, passenger *model.PassengerProfile) (dto.OrderResponse, error) {
 	if req.FromStationID == req.ToStationID {
 		return dto.OrderResponse{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "出发站和到达站不能相同")
 	}
@@ -56,8 +81,10 @@ func (s *OrderService) Create(userID uint64, req dto.CreateOrderRequest) (dto.Or
 			return err
 		}
 
-		var profile model.PassengerProfile
-		if err := tx.Where("user_id = ? AND verified_status = ?", userID, model.VerificationStatusVerified).First(&profile).Error; err != nil {
+		profile := model.PassengerProfile{}
+		if passenger != nil {
+			profile = *passenger
+		} else if err := tx.Where("user_id = ? AND verified_status = ?", userID, model.VerificationStatusVerified).First(&profile).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return apperrors.New(http.StatusForbidden, response.CodeForbidden, "请先完成实名乘车人信息")
 			}
@@ -75,13 +102,17 @@ func (s *OrderService) Create(userID uint64, req dto.CreateOrderRequest) (dto.Or
 			return apperrors.New(http.StatusConflict, response.CodeInsufficientInventory, "余票不足")
 		}
 
-		if err := tx.Model(&model.Inventory{}).
+		result := tx.Model(&model.Inventory{}).
 			Where("id = ? AND available_count > 0", row.InventoryID).
 			Updates(map[string]any{
 				"available_count": gorm.Expr("available_count - ?", 1),
 				"locked_count":    gorm.Expr("locked_count + ?", 1),
-			}).Error; err != nil {
-			return err
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return apperrors.New(http.StatusConflict, response.CodeInsufficientInventory, "余票不足")
 		}
 
 		created = model.Order{
@@ -100,7 +131,7 @@ func (s *OrderService) Create(userID uint64, req dto.CreateOrderRequest) (dto.Or
 			IDCardNo:        profile.IDCardNo,
 			AmountCents:     row.PriceCents,
 			Status:          model.OrderStatusPendingPayment,
-			PayExpiresAt:    time.Now().Add(s.cfg.OrderPayExpireDuration()),
+			PayExpiresAt:    time.Now().Add(time.Duration(systemSettingInt(tx, "order_pay_expire_minutes", int(s.cfg.OrderPayExpireDuration().Minutes()))) * time.Minute),
 			IdempotencyKey:  key,
 		}
 		return tx.Create(&created).Error
@@ -179,13 +210,17 @@ func (s *OrderService) Pay(userID, orderID uint64, req dto.PayOrderRequest) (dto
 		if row.LockedCount <= 0 {
 			return apperrors.New(http.StatusConflict, response.CodeInvalidOrderState, "订单锁票状态异常")
 		}
-		if err := tx.Model(&model.Inventory{}).
+		result := tx.Model(&model.Inventory{}).
 			Where("id = ? AND locked_count > 0", row.InventoryID).
 			Updates(map[string]any{
 				"locked_count": gorm.Expr("locked_count - ?", 1),
 				"sold_count":   gorm.Expr("sold_count + ?", 1),
-			}).Error; err != nil {
-			return err
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return apperrors.New(http.StatusConflict, response.CodeInvalidOrderState, "订单锁票状态异常")
 		}
 
 		now := time.Now()
@@ -331,13 +366,17 @@ func releaseOrderLock(tx *gorm.DB, order model.Order, nextStatus model.OrderStat
 		return err
 	}
 	if row.LockedCount > 0 {
-		if err := tx.Model(&model.Inventory{}).
+		result := tx.Model(&model.Inventory{}).
 			Where("id = ? AND locked_count > 0", row.InventoryID).
 			Updates(map[string]any{
 				"available_count": gorm.Expr("available_count + ?", 1),
 				"locked_count":    gorm.Expr("locked_count - ?", 1),
-			}).Error; err != nil {
-			return err
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return apperrors.New(http.StatusConflict, response.CodeInvalidOrderState, "订单锁票状态异常")
 		}
 	}
 	return tx.Model(&order).Update("status", nextStatus).Error

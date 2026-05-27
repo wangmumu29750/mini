@@ -21,8 +21,13 @@ async function handleSubmit() {
   loading.value = true
 
   try {
-    await authStore.login(form)
-    router.push(String(route.query.redirect || '/'))
+    const user = await authStore.login(form)
+    const redirect = String(route.query.redirect || '')
+    if (redirect && redirect !== '/') {
+      router.push(redirect)
+      return
+    }
+    router.push(user.role === 'ADMIN' ? '/admin' : user.role === 'CLERK' ? '/clerk' : '/')
   } catch (error) {
     errorMessage.value = (error as ApiErrorPayload).message
   } finally {

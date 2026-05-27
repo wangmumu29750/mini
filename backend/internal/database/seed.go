@@ -69,6 +69,24 @@ func seedUsers(tx *gorm.DB) error {
 		}
 	}
 
+	if err := tx.Model(&model.User{}).Where("username = ?", "clerk").Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		hash, err := bcrypt.GenerateFromPassword([]byte("Clerk123456"), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+		if err := tx.Create(&model.User{
+			Username:     "clerk",
+			PasswordHash: string(hash),
+			Role:         model.UserRoleClerk,
+			Status:       model.UserStatusActive,
+		}).Error; err != nil {
+			return err
+		}
+	}
+
 	if err := tx.Model(&model.User{}).Where("username = ?", "alice").Count(&count).Error; err != nil {
 		return err
 	}
