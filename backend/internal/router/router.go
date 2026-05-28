@@ -33,16 +33,19 @@ func New(cfg config.Config, db *gorm.DB) *gin.Engine {
 		orderRepo := repository.NewOrderRepository(db)
 		ticketRepo := repository.NewTicketRepository(db)
 		settingRepo := repository.NewSystemSettingRepository(db)
+		adminRepo := repository.NewAdminRepository(db)
 		authService := service.NewAuthService(cfg, userRepo)
 		trainService := service.NewTrainService(trainRepo)
 		orderService := service.NewOrderService(cfg, orderRepo)
 		ticketService := service.NewTicketService(ticketRepo)
 		settingService := service.NewSystemSettingService(settingRepo)
+		adminService := service.NewAdminService(adminRepo)
 		authHandler := handler.NewAuthHandler(authService)
 		trainHandler := handler.NewTrainHandler(trainService)
 		orderHandler := handler.NewOrderHandler(orderService)
 		ticketHandler := handler.NewTicketHandler(ticketService)
 		settingHandler := handler.NewSystemSettingHandler(settingService)
+		adminHandler := handler.NewAdminHandler(adminService)
 
 		authGroup := api.Group("/auth")
 		{
@@ -52,7 +55,7 @@ func New(cfg config.Config, db *gorm.DB) *gin.Engine {
 			authGroup.GET("/me", middleware.AuthRequired(cfg.JWTSecret), authHandler.Me)
 		}
 
-		api.GET("/stations", trainHandler.Stations)
+		api.GET("/stations", adminHandler.PublicStations)
 		api.GET("/trains/search", trainHandler.Search)
 
 		orderGroup := api.Group("/orders", middleware.AuthRequired(cfg.JWTSecret))
@@ -80,6 +83,21 @@ func New(cfg config.Config, db *gorm.DB) *gin.Engine {
 
 		adminGroup := api.Group("/admin", middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired(string(model.UserRoleAdmin)))
 		{
+			adminGroup.GET("/stations", adminHandler.ListStations)
+			adminGroup.POST("/stations", adminHandler.CreateStation)
+			adminGroup.PUT("/stations/:stationId", adminHandler.UpdateStation)
+			adminGroup.DELETE("/stations/:stationId", adminHandler.DisableStation)
+			adminGroup.GET("/trains", adminHandler.ListTrains)
+			adminGroup.POST("/trains", adminHandler.CreateTrain)
+			adminGroup.PUT("/trains/:trainId", adminHandler.UpdateTrain)
+			adminGroup.DELETE("/trains/:trainId", adminHandler.DeleteTrain)
+			adminGroup.GET("/trains/sellable-stats", adminHandler.SellableStats)
+			adminGroup.GET("/trains/:trainId/stops", adminHandler.ListStops)
+			adminGroup.PUT("/trains/:trainId/stops", adminHandler.SaveStops)
+			adminGroup.GET("/inventories", adminHandler.ListInventories)
+			adminGroup.PUT("/inventories", adminHandler.SaveInventory)
+			adminGroup.GET("/inventories/quote-stats", adminHandler.QuoteStats)
+			adminGroup.POST("/inventories/flow", adminHandler.FlowInventory)
 			adminGroup.GET("/settings", settingHandler.List)
 			adminGroup.PUT("/settings", settingHandler.Update)
 		}

@@ -277,3 +277,12 @@ Current `payments` fields in code: `payment_no`, `order_id`, `user_id`, `amount_
 Current `refunds` fields in code: `refund_no`, `ticket_id`, `payment_id`, `user_id`, `amount_cents`, `status`, `reason`, `idempotency_key`, `refunded_at`.
 
 Current `change_records` fields in code: `change_no`, `old_ticket_id`, `new_ticket_id`, `user_id`, `price_diff_cents`, `status`, `idempotency_key`, `changed_at`.
+
+Current admin maintenance notes:
+
+- Station deletion in the admin API is a soft business disable by setting `stations.status = DISABLED`; rows are not physically deleted.
+- Train deletion in the admin API is a soft business disable by setting `trains.status = DISABLED`; rows are not physically deleted.
+- Train stop maintenance replaces all `train_stops` rows for one train in a transaction, then ticket search and ticket time calculation use the new stop data.
+- The current MVP keeps seat-class quote and inventory in `inventories.price_cents`, `total_count`, `available_count`, `locked_count`, and `sold_count`.
+- The admin inventory save API upserts by `(train_id, travel_date, from_station_id, to_station_id, seat_class_code)`.
+- Inventory flow updates use row locks and map actions to the existing counters: `LOCK` moves available to locked, `PAY` moves locked to sold, `RELEASE` moves locked to available, `REFUND` and `CHANGE_OUT` move sold to available, and `CHANGE_IN` moves available to sold.

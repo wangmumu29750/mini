@@ -1,6 +1,9 @@
 export interface Station {
   id: number
   name: string
+  code?: string
+  city?: string
+  status?: string
 }
 
 export interface SeatOption {
@@ -40,6 +43,81 @@ export interface SystemSetting {
   value: string
   valueType: 'INT' | 'BOOL' | 'STRING' | string
   description: string
+}
+
+export interface PageResult<T> {
+  items: T[]
+  page: number
+  pageSize: number
+  total: number
+}
+
+export interface AdminStation extends Station {
+  code: string
+  city: string
+  status: 'ACTIVE' | 'DISABLED' | string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdminStationList extends PageResult<AdminStation> {
+  activeTotal: number
+}
+
+export interface AdminTrain {
+  id: number
+  trainNo: string
+  trainType: string
+  status: 'ACTIVE' | 'DISABLED' | string
+  stopCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TrainStop {
+  id: number
+  trainId: number
+  station: Station
+  stopOrder: number
+  dayOffset: number
+  arriveClock: string
+  departClock: string
+  mileage: number
+}
+
+export interface Inventory {
+  id: number
+  trainId: number
+  trainNo: string
+  travelDate: string
+  fromStation: Station
+  toStation: Station
+  seatClassCode: string
+  seatClassName: string
+  priceCents: number
+  totalCount: number
+  availableCount: number
+  lockedCount: number
+  soldCount: number
+  status: string
+  updatedAt: string
+}
+
+export interface SellableTrainStat {
+  date: string
+  trainCount: number
+}
+
+export interface InventoryQuoteStats {
+  trainId: number
+  seatClassCode?: string
+  quoteCount: number
+  lowestPriceCents: number
+}
+
+export interface InventoryFlowResult {
+  inventory: Inventory
+  lowestPriceCents: number
 }
 
 export interface Order {

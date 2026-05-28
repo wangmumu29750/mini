@@ -433,3 +433,103 @@ Change response data:
   "newTicket": {"id": 2, "ticketNo": "T20260523154500123456", "status": "ISSUED"}
 }
 ```
+
+## 12. Current Implemented Admin Resource API Notes
+
+Implemented admin endpoints, all requiring `ADMIN` role:
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/admin/stations?page=1&pageSize=20&status=ACTIVE` | Paginated station list with `activeTotal` enabled-station count |
+| POST | `/admin/stations` | Create station |
+| PUT | `/admin/stations/{stationId}` | Update station |
+| DELETE | `/admin/stations/{stationId}` | Disable station, not physical delete |
+| GET | `/admin/trains?page=1&pageSize=20&status=ACTIVE&trainNo=G` | Paginated train list |
+| POST | `/admin/trains` | Create train |
+| PUT | `/admin/trains/{trainId}` | Update train |
+| DELETE | `/admin/trains/{trainId}` | Disable train, not physical delete |
+| GET | `/admin/trains/sellable-stats?fromStationId=1&toStationId=5` | Today + tomorrow sellable train counts |
+| GET | `/admin/trains/{trainId}/stops` | Complete train stop list with arrival/departure clock fields |
+| PUT | `/admin/trains/{trainId}/stops` | Replace train stop data |
+| GET | `/admin/inventories?page=1&pageSize=20&trainId=1&seatClassCode=SECOND&date=2026-05-28` | Inventory and quote list |
+| PUT | `/admin/inventories` | Create or update an inventory quote item |
+| GET | `/admin/inventories/quote-stats?trainId=1&seatClassCode=SECOND` | Quote item count and lowest price |
+| POST | `/admin/inventories/flow` | Inventory transition for order/payment/refund/change integration |
+
+Public station list also supports pagination and status filter:
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/stations` | Backward-compatible active station array |
+| GET | `/stations?page=1&pageSize=20&status=ACTIVE` | Paginated station list for ticket-system station data |
+
+Station save request:
+
+```json
+{
+  "code": "BJN",
+  "name": "北京南",
+  "city": "北京",
+  "status": "ACTIVE"
+}
+```
+
+Train save request:
+
+```json
+{
+  "trainNo": "G101",
+  "trainType": "G",
+  "status": "ACTIVE"
+}
+```
+
+Train stops replace request:
+
+```json
+{
+  "stops": [
+    {"stationId": 1, "stopOrder": 1, "dayOffset": 0, "arriveClock": "", "departClock": "08:00:00", "mileage": 0},
+    {"stationId": 5, "stopOrder": 2, "dayOffset": 0, "arriveClock": "12:30:00", "departClock": "", "mileage": 1200}
+  ]
+}
+```
+
+Inventory save request:
+
+```json
+{
+  "trainId": 1,
+  "travelDate": "2026-05-28",
+  "fromStationId": 1,
+  "toStationId": 5,
+  "seatClassCode": "SECOND",
+  "priceCents": 55300,
+  "totalCount": 80,
+  "availableCount": 30,
+  "lockedCount": 0,
+  "soldCount": 50,
+  "status": "ACTIVE"
+}
+```
+
+Inventory flow request:
+
+```json
+{
+  "inventoryId": 1,
+  "action": "LOCK",
+  "quantity": 1
+}
+```
+
+Supported inventory flow actions:
+
+- `LOCK`: purchase/order creation, `available_count -> locked_count`
+- `PAY`: payment/ticketing, `locked_count -> sold_count`
+- `RELEASE`: payment timeout or cancellation, `locked_count -> available_count`
+- `REFUND`: refund, `sold_count -> available_count`
+- `CHANGE_OUT`: old ticket in change flow, `sold_count -> available_count`
+- `CHANGE_IN`: new ticket in change flow, `available_count -> sold_count`
+
+Inventory flow response returns the updated inventory item and `lowestPriceCents` for the train.

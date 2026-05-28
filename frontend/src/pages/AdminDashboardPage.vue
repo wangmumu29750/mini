@@ -1,60 +1,124 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 
-import { fetchStations, searchTrains } from '@/api/trains'
-import EmptyState from '@/components/EmptyState.vue'
+import {
+  createStation,
+  createTrain,
+  deleteTrain,
+  disableStation,
+  fetchAdminStations,
+  fetchAdminTrains,
+  fetchInventories,
+  fetchQuoteStats,
+  fetchSellableStats,
+  fetchTrainStops,
+  flowInventory,
+  saveInventory,
+  saveTrainStops,
+  updateStation,
+  updateTrain,
+  type SaveInventoryPayload,
+  type SaveStationPayload,
+  type SaveTrainPayload,
+  type SaveTrainStopPayload,
+} from '@/api/admin'
+import AdminInventoryPanel from '@/components/admin/AdminInventoryPanel.vue'
+import AdminStationsPanel from '@/components/admin/AdminStationsPanel.vue'
+import AdminStopsPanel from '@/components/admin/AdminStopsPanel.vue'
+import AdminSummaryCards from '@/components/admin/AdminSummaryCards.vue'
+import AdminTrainsPanel from '@/components/admin/AdminTrainsPanel.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import type { ApiErrorPayload } from '@/types/api'
-import type { Station, TrainSearchItem } from '@/types/domain'
-import { formatMoney, formatTime } from '@/utils/format'
+import type { AdminStation, AdminTrain, Inventory, InventoryQuoteStats, SellableTrainStat, TrainStop } from '@/types/domain'
 
-const stations = ref<Station[]>([])
-const todayTrains = ref<TrainSearchItem[]>([])
-const tomorrowTrains = ref<TrainSearchItem[]>([])
+const tabs = [
+  { key: 'stations', label: '站点' },
+  { key: 'trains', label: '车次' },
+  { key: 'stops', label: '经停' },
+  { key: 'inventory', label: '票额' },
+] as const
+
+type AdminTab = (typeof tabs)[number]['key']
+
+const activeTab = ref<AdminTab>('stations')
 const loading = ref(false)
+const saving = ref(false)
 const errorMessage = ref('')
+const successMessage = ref('')
 
-const today = dateText(0)
-const tomorrow = dateText(1)
+const stationList = ref<AdminStation[]>([])
+const activeStationTotal = ref(0)
+const trains = ref<AdminTrain[]>([])
+const inventories = ref<Inventory[]>([])
+const stats = ref<SellableTrainStat[]>([])
+const quoteStats = ref<InventoryQuoteStats | null>(null)
+const stops = ref<TrainStop[]>([])
 
-const totalTrainCount = computed(() => todayTrains.value.length + tomorrowTrains.value.length)
-const routeName = computed(() => {
-  if (stations.value.length < 2) return '暂无可查线路'
-  return `${stations.value[0]?.name} → ${stations.value[stations.value.length - 1]?.name}`
+const selectedTrainId = ref<number | null>(null)
+const selectedInventoryId = ref<number | null>(null)
+const flowAction = ref('LOCK')
+const flowQuantity = ref(1)
+
+const stationForm = reactive<SaveStationPayload & { id?: number }>({
+  code: '',
+  name: '',
+  city: '',
+  status: 'ACTIVE',
 })
-const seatCount = computed(() => [...todayTrains.value, ...tomorrowTrains.value].reduce((sum, train) => sum + train.seatOptions.length, 0))
+
+const trainForm = reactive<SaveTrainPayload & { id?: number }>({
+  trainNo: '',
+  trainType: 'G',
+  status: 'ACTIVE',
+})
+
+const inventoryForm = reactive<SaveInventoryPayload>({
+  trainId: 0,
+  travelDate: dateText(1),
+  fromStationId: 0,
+  toStationId: 0,
+  seatClassCode: 'SECOND',
+  priceCents: 0,
+  totalCount: 0,
+  availableCount: 0,
+  lockedCount: 0,
+  soldCount: 0,
+  status: 'ACTIVE',
+})
+
+const stopDrafts = ref<SaveTrainStopPayload[]>([])
+
+const totalSellableTrains = computed(() => stats.value.reduce((sum, item) => sum + item.trainCount, 0))
 const lowestPrice = computed(() => {
-  const prices = [...todayTrains.value, ...tomorrowTrains.value].flatMap((train) => train.seatOptions.map((seat) => seat.priceCents))
-  return prices.length ? Math.min(...prices) : 0
+  const prices = inventories.value.map((item) => item.priceCents).filter(Boolean)
+  return quoteStats.value?.lowestPriceCents || (prices.length ? Math.min(...prices) : 0)
 })
+const selectedTrain = computed(() => trains.value.find((train) => train.id === selectedTrainId.value))
 
-const modules = [
-  { title: '站点管理', status: '后端管理接口未接入', description: '当前可读取旅客端站点列表，新增、编辑、停用站点仍需 /admin/stations。' },
-  { title: '车次管理', status: '后端管理接口未接入', description: '当前可通过查询接口核对可售车次，维护车次仍需 /admin/trains。' },
-  { title: '经停管理', status: '后端管理接口未接入', description: '经停数据已参与查询和出票时间计算，覆盖保存经停仍需 /admin/trains/{id}/stops。' },
-  { title: '票额管理', status: '后端管理接口未接入', description: '票额会在购票、支付、退票、改签中流转，后台编辑仍需 /admin/inventories。' },
-]
+onMounted(loadAll)
 
-onMounted(loadDashboard)
-
-async function loadDashboard() {
+async function loadAll() {
   loading.value = true
   errorMessage.value = ''
+  successMessage.value = ''
 
   try {
-    stations.value = await fetchStations()
-    const fromStation = stations.value[0]
-    const toStation = stations.value[stations.value.length - 1]
-    if (fromStation && toStation && fromStation.id !== toStation.id) {
-      const fromStationId = fromStation.id
-      const toStationId = toStation.id
-      const [todayResult, tomorrowResult] = await Promise.all([
-        searchTrains({ date: today, fromStationId, toStationId }),
-        searchTrains({ date: tomorrow, fromStationId, toStationId }),
-      ])
-      todayTrains.value = todayResult
-      tomorrowTrains.value = tomorrowResult
-    }
+    const [stationResult, trainResult, inventoryResult] = await Promise.all([
+      fetchAdminStations({ page: 1, pageSize: 100 }),
+      fetchAdminTrains({ page: 1, pageSize: 100 }),
+      fetchInventories({ page: 1, pageSize: 100 }),
+    ])
+
+    stationList.value = stationResult.items
+    activeStationTotal.value = stationResult.activeTotal
+    trains.value = trainResult.items
+    inventories.value = inventoryResult.items
+
+    selectedTrainId.value ||= trains.value[0]?.id || null
+    selectedInventoryId.value ||= inventories.value[0]?.id || null
+    seedInventoryDefaults()
+
+    await Promise.all([loadStops(), loadStats(), loadQuoteStats()])
   } catch (error) {
     errorMessage.value = (error as ApiErrorPayload).message
   } finally {
@@ -62,91 +126,292 @@ async function loadDashboard() {
   }
 }
 
+async function loadStops() {
+  if (!selectedTrainId.value) return
+
+  stops.value = await fetchTrainStops(selectedTrainId.value)
+  stopDrafts.value = stops.value.map((stop) => ({
+    stationId: stop.station.id,
+    stopOrder: stop.stopOrder,
+    dayOffset: stop.dayOffset,
+    arriveClock: stop.arriveClock,
+    departClock: stop.departClock,
+    mileage: stop.mileage,
+  }))
+}
+
+async function loadStats() {
+  const activeStations = stationList.value.filter((station) => station.status === 'ACTIVE')
+  const from = activeStations[0]
+  const to = activeStations[activeStations.length - 1]
+  stats.value = from && to && from.id !== to.id ? await fetchSellableStats(from.id, to.id) : []
+}
+
+async function loadQuoteStats() {
+  quoteStats.value = selectedTrainId.value ? await fetchQuoteStats(selectedTrainId.value) : null
+}
+
+async function handleSaveStation() {
+  await runSave(async () => {
+    if (stationForm.id) {
+      await updateStation(stationForm.id, stationForm)
+      successMessage.value = '站点已更新'
+    } else {
+      await createStation(stationForm)
+      successMessage.value = '站点已新增'
+    }
+    resetStationForm()
+    await loadAll()
+  })
+}
+
+async function handleDisableStation(station: AdminStation) {
+  await runSave(async () => {
+    await disableStation(station.id)
+    successMessage.value = '站点已停用'
+    await loadAll()
+  })
+}
+
+async function handleSaveTrain() {
+  await runSave(async () => {
+    if (trainForm.id) {
+      await updateTrain(trainForm.id, trainForm)
+      successMessage.value = '车次已更新'
+    } else {
+      await createTrain(trainForm)
+      successMessage.value = '车次已新增'
+    }
+    resetTrainForm()
+    await loadAll()
+  })
+}
+
+async function handleDeleteTrain(train: AdminTrain) {
+  await runSave(async () => {
+    await deleteTrain(train.id)
+    successMessage.value = '车次已停用'
+    await loadAll()
+  })
+}
+
+async function handleSaveStops() {
+  if (!selectedTrainId.value) return
+
+  await runSave(async () => {
+    await saveTrainStops(selectedTrainId.value!, stopDrafts.value)
+    successMessage.value = '经停数据已保存'
+    await loadStops()
+  })
+}
+
+async function handleSaveInventory() {
+  await runSave(async () => {
+    await saveInventory(inventoryForm)
+    successMessage.value = '票额报价已保存'
+    await loadAll()
+  })
+}
+
+async function handleFlowInventory() {
+  if (!selectedInventoryId.value) return
+
+  await runSave(async () => {
+    await flowInventory(selectedInventoryId.value!, flowAction.value, flowQuantity.value)
+    successMessage.value = '票额流转已完成'
+    await loadAll()
+  })
+}
+
+async function runSave(action: () => Promise<void>) {
+  saving.value = true
+  errorMessage.value = ''
+  successMessage.value = ''
+  try {
+    await action()
+  } catch (error) {
+    errorMessage.value = (error as ApiErrorPayload).message
+  } finally {
+    saving.value = false
+  }
+}
+
+function editStation(station: AdminStation) {
+  Object.assign(stationForm, {
+    id: station.id,
+    code: station.code,
+    name: station.name,
+    city: station.city,
+    status: station.status,
+  })
+  activeTab.value = 'stations'
+}
+
+function editTrain(train: AdminTrain) {
+  Object.assign(trainForm, {
+    id: train.id,
+    trainNo: train.trainNo,
+    trainType: train.trainType,
+    status: train.status,
+  })
+  selectedTrainId.value = train.id
+  activeTab.value = 'trains'
+}
+
+function showStops(train: AdminTrain) {
+  selectedTrainId.value = train.id
+  activeTab.value = 'stops'
+  loadStops()
+}
+
+function editInventory(item: Inventory) {
+  Object.assign(inventoryForm, {
+    trainId: item.trainId,
+    travelDate: item.travelDate,
+    fromStationId: item.fromStation.id,
+    toStationId: item.toStation.id,
+    seatClassCode: item.seatClassCode,
+    priceCents: item.priceCents,
+    totalCount: item.totalCount,
+    availableCount: item.availableCount,
+    lockedCount: item.lockedCount,
+    soldCount: item.soldCount,
+    status: item.status,
+  })
+  selectedInventoryId.value = item.id
+  activeTab.value = 'inventory'
+}
+
+function addStopDraft() {
+  stopDrafts.value.push({
+    stationId: stationList.value[0]?.id || 0,
+    stopOrder: stopDrafts.value.length + 1,
+    dayOffset: 0,
+    arriveClock: '',
+    departClock: '',
+    mileage: 0,
+  })
+}
+
+function removeStopDraft(index: number) {
+  stopDrafts.value.splice(index, 1)
+}
+
+function resetStationForm() {
+  Object.assign(stationForm, { id: undefined, code: '', name: '', city: '', status: 'ACTIVE' })
+}
+
+function resetTrainForm() {
+  Object.assign(trainForm, { id: undefined, trainNo: '', trainType: 'G', status: 'ACTIVE' })
+}
+
+function seedInventoryDefaults() {
+  const inventory = inventories.value[0]
+  if (inventory && !inventoryForm.trainId) {
+    editInventory(inventory)
+    return
+  }
+
+  const train = trains.value[0]
+  const activeStations = stationList.value.filter((station) => station.status === 'ACTIVE')
+  inventoryForm.trainId ||= train?.id || 0
+  inventoryForm.fromStationId ||= activeStations[0]?.id || 0
+  inventoryForm.toStationId ||= activeStations[activeStations.length - 1]?.id || 0
+}
+
 function dateText(offset: number) {
   const date = new Date()
   date.setDate(date.getDate() + offset)
   return date.toISOString().slice(0, 10)
 }
-
-function minPrice(train: TrainSearchItem) {
-  return Math.min(...train.seatOptions.map((seat) => seat.priceCents))
-}
 </script>
 
 <template>
   <main>
-    <PageHeader title="管理后台" description="查看基础数据接入情况，维护接口接入前先用于核对演示数据是否可查询、可售。" />
+    <PageHeader title="管理后台" description="维护站点、车次、经停与票额报价，库存流转由后端服务层事务处理。" />
 
     <section class="mx-auto max-w-7xl px-4 py-6 sm:px-8">
       <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div class="text-sm font-bold text-slate-400">{{ loading ? '加载中...' : `当前核对线路：${routeName}` }}</div>
-        <button class="btn-secondary" type="button" :disabled="loading" @click="loadDashboard">
-          {{ loading ? '刷新中...' : '刷新数据' }}
-        </button>
+        <div class="text-sm font-bold text-slate-400">{{ loading ? '加载中...' : '管理员基础数据维护' }}</div>
+        <button class="btn-secondary" type="button" :disabled="loading || saving" @click="loadAll">刷新</button>
       </div>
 
       <p v-if="errorMessage" class="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{{ errorMessage }}</p>
+      <p v-if="successMessage" class="mb-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{{ successMessage }}</p>
 
-      <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <article class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <div class="text-sm font-black text-slate-400">启用站点</div>
-          <div class="mt-3 text-4xl font-black text-slate-950">{{ stations.length }}</div>
-          <div class="mt-2 text-sm font-bold text-slate-500">来自 /stations</div>
-        </article>
-        <article class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <div class="text-sm font-black text-slate-400">两日可售车次</div>
-          <div class="mt-3 text-4xl font-black text-slate-950">{{ totalTrainCount }}</div>
-          <div class="mt-2 text-sm font-bold text-slate-500">今日 + 明日查询结果</div>
-        </article>
-        <article class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <div class="text-sm font-black text-slate-400">席别报价项</div>
-          <div class="mt-3 text-4xl font-black text-slate-950">{{ seatCount }}</div>
-          <div class="mt-2 text-sm font-bold text-slate-500">按可售车次席别统计</div>
-        </article>
-        <article class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <div class="text-sm font-black text-slate-400">最低票价</div>
-          <div class="mt-3 text-4xl font-black text-rose-600">{{ lowestPrice ? formatMoney(lowestPrice) : '-' }}</div>
-          <div class="mt-2 text-sm font-bold text-slate-500">用于核对票额价格</div>
-        </article>
+      <AdminSummaryCards
+        :active-station-total="activeStationTotal"
+        :stats="stats"
+        :quote-stats="quoteStats"
+        :inventory-count="inventories.length"
+        :total-sellable-trains="totalSellableTrains"
+        :lowest-price="lowestPrice"
+        :selected-train="selectedTrain"
+      />
+
+      <div class="mt-6 overflow-x-auto border-b border-slate-200">
+        <button
+          v-for="tab in tabs"
+          :key="tab.key"
+          class="mr-2 border-b-2 px-4 py-3 text-sm font-black"
+          :class="activeTab === tab.key ? 'border-teal-600 text-teal-700' : 'border-transparent text-slate-500'"
+          type="button"
+          @click="activeTab = tab.key"
+        >
+          {{ tab.label }}
+        </button>
       </div>
 
-      <div class="mt-6 grid gap-6 xl:grid-cols-[1fr_360px]">
-        <section class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <div class="mb-4 flex items-center justify-between">
-            <h2 class="text-lg font-black text-slate-950">可售车次抽检</h2>
-            <span class="text-sm font-bold text-slate-400">{{ today }} / {{ tomorrow }}</span>
-          </div>
+      <AdminStationsPanel
+        v-if="activeTab === 'stations'"
+        :stations="stationList"
+        :form="stationForm"
+        :saving="saving"
+        @save="handleSaveStation"
+        @reset="resetStationForm"
+        @edit="editStation"
+        @disable="handleDisableStation"
+      />
 
-          <div v-if="[...todayTrains, ...tomorrowTrains].length" class="space-y-3">
-            <div
-              v-for="train in [...todayTrains, ...tomorrowTrains].slice(0, 8)"
-              :key="`${train.trainId}-${train.travelDate}`"
-              class="grid gap-3 rounded-lg border border-slate-100 bg-slate-50 p-4 sm:grid-cols-[100px_1fr_120px]"
-            >
-              <div>
-                <div class="text-lg font-black text-slate-900">{{ train.trainNo }}</div>
-                <div class="text-xs font-bold text-slate-400">{{ train.travelDate }}</div>
-              </div>
-              <div class="text-sm font-bold text-slate-600">
-                {{ train.fromStation.name }} {{ formatTime(train.departTime) }} → {{ train.toStation.name }} {{ formatTime(train.arriveTime) }}
-              </div>
-              <div class="text-right text-sm font-black text-rose-600">起 {{ formatMoney(minPrice(train)) }}</div>
-            </div>
-          </div>
+      <AdminTrainsPanel
+        v-else-if="activeTab === 'trains'"
+        :trains="trains"
+        :form="trainForm"
+        :saving="saving"
+        @save="handleSaveTrain"
+        @reset="resetTrainForm"
+        @edit="editTrain"
+        @stops="showStops"
+        @delete="handleDeleteTrain"
+      />
 
-          <EmptyState v-else title="暂无可抽检车次" description="请确认种子数据已写入，并选择有库存的出发站和到达站。" />
-        </section>
+      <AdminStopsPanel
+        v-else-if="activeTab === 'stops'"
+        v-model:selected-train-id="selectedTrainId"
+        :trains="trains"
+        :stations="stationList"
+        :stop-drafts="stopDrafts"
+        :saving="saving"
+        @load="loadStops"
+        @add="addStopDraft"
+        @remove="removeStopDraft"
+        @save="handleSaveStops"
+      />
 
-        <section class="space-y-4">
-          <article v-for="item in modules" :key="item.title" class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <div class="flex items-start justify-between gap-3">
-              <h2 class="text-base font-black text-slate-950">{{ item.title }}</h2>
-              <span class="rounded-md bg-amber-50 px-2 py-1 text-xs font-black text-amber-600">{{ item.status }}</span>
-            </div>
-            <p class="mt-3 text-sm font-medium leading-6 text-slate-500">{{ item.description }}</p>
-          </article>
-        </section>
-      </div>
+      <AdminInventoryPanel
+        v-else
+        v-model:selected-inventory-id="selectedInventoryId"
+        v-model:flow-action="flowAction"
+        v-model:flow-quantity="flowQuantity"
+        :trains="trains"
+        :stations="stationList"
+        :inventories="inventories"
+        :form="inventoryForm"
+        :saving="saving"
+        @save="handleSaveInventory"
+        @flow="handleFlowInventory"
+        @edit="editInventory"
+      />
     </section>
   </main>
 </template>
