@@ -15,6 +15,7 @@ type TrainRepository struct {
 type TrainSearchRow struct {
 	TrainID         uint64
 	TrainNo         string
+	TrainType       string
 	TravelDate      time.Time
 	FromStationID   uint64
 	FromStationName string
@@ -51,6 +52,7 @@ func SearchAvailableTrains(db *gorm.DB, date time.Time, fromStationID, toStation
 		Select(`
 			t.id AS train_id,
 			t.train_no,
+			t.train_type,
 			i.travel_date,
 			fs.id AS from_station_id,
 			fs.name AS from_station_name,

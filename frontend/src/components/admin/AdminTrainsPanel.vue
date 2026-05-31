@@ -23,7 +23,14 @@ defineEmits<{
       <h2 class="text-lg font-black text-slate-950">{{ form.id ? '编辑车次' : '新增车次' }}</h2>
       <div class="mt-4 space-y-3">
         <input v-model.trim="form.trainNo" class="form-input" placeholder="车次号，如 G101" />
-        <input v-model.trim="form.trainType" class="form-input" placeholder="类型，如 G/D/K" />
+        <select v-model="form.trainType" class="form-input">
+          <option value="G">G 高铁</option>
+          <option value="C">C 城际</option>
+          <option value="D">D 动车</option>
+          <option value="Z">Z 直达</option>
+          <option value="T">T 特快</option>
+          <option value="K">K 快速</option>
+        </select>
         <select v-model="form.status" class="form-input">
           <option value="ACTIVE">启用</option>
           <option value="DISABLED">停用</option>

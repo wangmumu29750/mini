@@ -23,6 +23,14 @@ const (
 	VerificationStatusFailed   VerificationStatus = "FAILED"
 )
 
+type PassengerType string
+
+const (
+	PassengerTypeAdult   PassengerType = "ADULT"
+	PassengerTypeStudent PassengerType = "STUDENT"
+	PassengerTypeChild   PassengerType = "CHILD"
+)
+
 type TrainStatus string
 
 const (
@@ -76,4 +84,20 @@ const (
 	TicketStatusIssued     TicketStatus = "ISSUED"
 	TicketStatusRefunded   TicketStatus = "REFUNDED"
 	TicketStatusChangedOut TicketStatus = "CHANGED_OUT"
+)
+
+type TicketType string
+
+const (
+	TicketTypeAdult   TicketType = "ADULT"
+	TicketTypeStudent TicketType = "STUDENT"
+	TicketTypeChild   TicketType = "CHILD"
+)
+
+type SeatType string
+
+const (
+	SeatTypeSecond   SeatType = "SECOND"
+	SeatTypeFirst    SeatType = "FIRST"
+	SeatTypeBusiness SeatType = "BUSINESS"
 )

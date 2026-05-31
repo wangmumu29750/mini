@@ -258,6 +258,11 @@ function editTrain(train: AdminTrain) {
   activeTab.value = 'trains'
 }
 
+function seatClassDefaults(trainId: number) {
+  const train = trains.value.find((item) => item.id === trainId)
+  return train?.seatClassCodes?.[0] || 'SECOND'
+}
+
 function showStops(train: AdminTrain) {
   selectedTrainId.value = train.id
   activeTab.value = 'stops'
@@ -315,6 +320,7 @@ function seedInventoryDefaults() {
   const train = trains.value[0]
   const activeStations = stationList.value.filter((station) => station.status === 'ACTIVE')
   inventoryForm.trainId ||= train?.id || 0
+  inventoryForm.seatClassCode ||= seatClassDefaults(inventoryForm.trainId)
   inventoryForm.fromStationId ||= activeStations[0]?.id || 0
   inventoryForm.toStationId ||= activeStations[activeStations.length - 1]?.id || 0
 }

@@ -26,6 +26,7 @@ type Order struct {
 	PaidAt          *time.Time  `json:"paidAt,omitempty"`
 	IdempotencyKey  string      `gorm:"size:80;uniqueIndex:idx_order_idempotency,priority:2" json:"-"`
 
-	Tickets  []Ticket  `gorm:"foreignKey:OrderID" json:"tickets,omitempty"`
-	Payments []Payment `gorm:"foreignKey:OrderID" json:"payments,omitempty"`
+	Tickets  []Ticket    `gorm:"foreignKey:OrderID" json:"tickets,omitempty"`
+	Items    []OrderItem `gorm:"foreignKey:OrderID" json:"items,omitempty"`
+	Payments []Payment   `gorm:"foreignKey:OrderID" json:"payments,omitempty"`
 }

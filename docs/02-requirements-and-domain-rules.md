@@ -43,13 +43,18 @@
 - 查询条件至少包含乘车日期、出发站、到达站。
 - 出发站和到达站必须在同一车次经停表中，且出发站站序小于到达站站序。
 - 查询结果应包含车次号、出发/到达站、出发/到达时间、历时、席别、票价、余票。
+- 车次类型按车次号前缀分为 `G` / `C` 高铁或城际、`D` 动车、`Z` / `T` / `K` 普速列车。管理端保存车次时，`train_type` 必须与车次号前缀一致。
+- 不同车次类型只能销售匹配席别：`G` / `C` 支持商务座、一等座、二等座；`D` 支持一等卧、二等卧、二等座；`Z` / `T` / `K` 支持高级软卧、软卧、硬卧、硬座、无座。
 - 只展示乘车日期仍可售的车次；已发车车次不允许购买。
 - 管理端修改车次或经停后，应保证站序、时间和价格仍可计算。
+- 票价按区间里程、基础票价和席别系数动态计算，金额仍以整数分保存。当前基础票价为每公里 13 分，席别系数为：硬座/无座 1.0、硬卧 2.0、软卧 3.0、高级软卧 4.0、动车二等座 3.0、动车二等卧 3.8、动车一等卧 5.0、高铁二等座 3.5、高铁一等座 5.8、商务座 10.0。
 
 ## 5. 购票规则
 
 - 创建订单前必须校验旅客实名资料已通过模拟认证。
 - 同一用户可以购买多张票，但 MVP 可限制每个订单仅包含一名乘车人和一张票，降低复杂度。
+- 当前多票种购票切片支持一个订单包含多名乘车人，每个乘车人独立选择席别和票种。订单总金额必须以后端服务层根据订单明细重新计算为准。
+- 票种支持 `ADULT` 成人票、`STUDENT` 学生票、`CHILD` 儿童票。学生票仅二等座享 7.5 折，一等座和商务座不允许学生票；儿童票统一 5 折；成人票不打折。
 - 下单时必须锁定或扣减库存，支付超时或取消时释放库存。
 - 支付成功后订单状态变为 `PAID`，随后生成车票并将订单标记为 `TICKETED`。
 - 重复支付请求必须幂等，不能重复扣款、重复出票或重复扣库存。
@@ -142,3 +147,5 @@
 - User roles now include `PASSENGER`, `CLERK`, and `ADMIN`.
 - `CLERK` users can create ticket orders for walk-up passengers through the backend service layer. The clerk flow must still verify passenger identity, lock inventory, use an idempotency key, and leave payment/order state transitions to the existing order service.
 - Administrators can maintain system parameters through `SystemSetting`. The current implemented settings are `order_pay_expire_minutes`, `refund_cutoff_minutes`, `change_cutoff_minutes`, `refund_fee_percent`, and `mock_payment_enabled`.
+- Train and fare data now supports `G` / `C` / `D` / `Z` / `T` / `K` train types with type-specific seat classes. Admin inventory save validates the seat class against the train type and can calculate `price_cents` from route mileage when the request sends `priceCents: 0`.
+- The passenger web flow now supports search -> confirm order -> payment. `POST /orders` accepts multiple passenger items, writes `order_items`, locks one inventory item per passenger, and `POST /orders/{orderId}/payments` creates one ticket per order item.

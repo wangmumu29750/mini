@@ -114,9 +114,15 @@ func trainFromRequest(req dto.SaveTrainRequest) (model.Train, error) {
 		status = string(model.TrainStatusActive)
 	}
 	trainNo := strings.ToUpper(strings.TrimSpace(req.TrainNo))
-	trainType := strings.ToUpper(strings.TrimSpace(req.TrainType))
+	trainType := normalizeTrainType(req.TrainType)
 	if trainNo == "" || trainType == "" {
 		return model.Train{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "车次号和车次类型不能为空")
+	}
+	if inferred := trainTypeFromTrainNo(trainNo); inferred != "" && trainType != inferred {
+		return model.Train{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "车次类型必须与车次号前缀一致")
+	}
+	if !supportedTrainType(trainType) {
+		return model.Train{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "车次类型只支持 G/C/D/Z/T/K")
 	}
 	return model.Train{TrainNo: trainNo, TrainType: trainType, Status: model.TrainStatus(status)}, nil
 }

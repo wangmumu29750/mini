@@ -41,11 +41,22 @@ func (s *AdminService) SaveInventory(req dto.SaveInventoryRequest) (dto.Inventor
 	}
 
 	err = s.admin.Transaction(func(tx *gorm.DB) error {
-		if err := ensureTrainAndStations(tx, inventory.TrainID, inventory.FromStationID, inventory.ToStationID); err != nil {
+		train, err := ensureTrainAndStations(tx, inventory.TrainID, inventory.FromStationID, inventory.ToStationID)
+		if err != nil {
 			return err
 		}
+		if err := ensureSeatClassAllowed(train.TrainType, inventory.SeatClassCode); err != nil {
+			return err
+		}
+		calculatedPrice, err := fareForInventory(tx, inventory, train.TrainType)
+		if err != nil {
+			return err
+		}
+		if inventory.PriceCents <= 0 {
+			inventory.PriceCents = calculatedPrice
+		}
 		var existing model.Inventory
-		err := tx.Where("train_id = ? AND DATE(travel_date) = ? AND from_station_id = ? AND to_station_id = ? AND seat_class_code = ?",
+		err = tx.Where("train_id = ? AND DATE(travel_date) = ? AND from_station_id = ? AND to_station_id = ? AND seat_class_code = ?",
 			inventory.TrainID, inventory.TravelDate.Format("2006-01-02"), inventory.FromStationID, inventory.ToStationID, inventory.SeatClassCode).
 			First(&existing).Error
 		if err == nil {
@@ -207,7 +218,7 @@ func inventoryFromRequest(req dto.SaveInventoryRequest) (model.Inventory, error)
 	if req.FromStationID == req.ToStationID {
 		return model.Inventory{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "出发站和到达站不能相同")
 	}
-	if req.PriceCents <= 0 || req.TotalCount < 0 || req.AvailableCount < 0 || req.LockedCount < 0 || req.SoldCount < 0 {
+	if req.PriceCents < 0 || req.TotalCount < 0 || req.AvailableCount < 0 || req.LockedCount < 0 || req.SoldCount < 0 {
 		return model.Inventory{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "票价和票额数量不正确")
 	}
 	if req.AvailableCount+req.LockedCount+req.SoldCount > req.TotalCount {
@@ -233,4 +244,19 @@ func inventoryFromRequest(req dto.SaveInventoryRequest) (model.Inventory, error)
 		SoldCount:      req.SoldCount,
 		Status:         model.InventoryStatus(status),
 	}, nil
+}
+
+func fareForInventory(tx *gorm.DB, inventory model.Inventory, trainType string) (int64, error) {
+	var fromStop model.TrainStop
+	if err := tx.Where("train_id = ? AND station_id = ?", inventory.TrainID, inventory.FromStationID).First(&fromStop).Error; err != nil {
+		return 0, err
+	}
+	var toStop model.TrainStop
+	if err := tx.Where("train_id = ? AND station_id = ?", inventory.TrainID, inventory.ToStationID).First(&toStop).Error; err != nil {
+		return 0, err
+	}
+	if fromStop.StopOrder >= toStop.StopOrder {
+		return 0, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "出发站必须早于到达站")
+	}
+	return calculateFareCents(toStop.Mileage-fromStop.Mileage, trainType, inventory.SeatClassCode)
 }

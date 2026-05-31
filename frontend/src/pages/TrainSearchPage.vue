@@ -2,7 +2,6 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { createOrder } from '@/api/orders'
 import { fetchStations, searchTrains } from '@/api/trains'
 import EmptyState from '@/components/EmptyState.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -20,7 +19,6 @@ const stations = ref<Station[]>([])
 const trains = ref<TrainSearchItem[]>([])
 const loading = ref(false)
 const stationLoading = ref(false)
-const bookingKey = ref('')
 const errorMessage = ref('')
 const successMessage = ref('')
 const onlyHighSpeed = ref(false)
@@ -118,55 +116,23 @@ async function handleBook(train: TrainSearchItem, seat: SeatOption) {
     return
   }
 
-  const key = `${train.trainId}-${train.travelDate}-${seat.seatClassCode}`
-  bookingKey.value = key
-  errorMessage.value = ''
-  successMessage.value = ''
-
-  try {
-    await createOrder({
-      trainId: train.trainId,
+  await router.push({
+    name: 'confirm-order',
+    query: {
+      trainId: String(train.trainId),
       travelDate: train.travelDate,
-      fromStationId: train.fromStation.id,
-      toStationId: train.toStation.id,
-      seatClassCode: seat.seatClassCode,
-      idempotencyKey: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    })
-    decrementSeatAvailability(train, seat)
-    successMessage.value = '订单已创建，请在订单页完成模拟支付。'
-    await notificationStore.refresh()
-    await router.push({ name: 'orders' })
-  } catch (error) {
-    errorMessage.value = (error as ApiErrorPayload).message
-  } finally {
-    bookingKey.value = ''
-  }
+      fromStationId: String(train.fromStation.id),
+      toStationId: String(train.toStation.id),
+      seatType: seat.seatClassCode,
+    },
+  })
+  await notificationStore.refresh()
 }
 
 function swapStations() {
   const from = query.fromStationId
   query.fromStationId = query.toStationId
   query.toStationId = from
-}
-
-function decrementSeatAvailability(train: TrainSearchItem, seat: SeatOption) {
-  trains.value = trains.value.map((item) => {
-    if (item.trainId !== train.trainId || item.travelDate !== train.travelDate) {
-      return item
-    }
-    return {
-      ...item,
-      seatOptions: item.seatOptions.map((option) => {
-        if (option.seatClassCode !== seat.seatClassCode) {
-          return option
-        }
-        return {
-          ...option,
-          availableCount: Math.max(option.availableCount - 1, 0),
-        }
-      }),
-    }
-  })
 }
 
 async function selectQuickDate(date: string) {
@@ -313,7 +279,7 @@ function sortLabel() {
                 :key="seat.seatClassCode"
                 class="rounded-lg border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-emerald-200 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
                 type="button"
-                :disabled="seat.availableCount <= 0 || bookingKey === `${train.trainId}-${train.travelDate}-${seat.seatClassCode}`"
+                :disabled="seat.availableCount <= 0"
                 @click="handleBook(train, seat)"
               >
                 <div class="text-sm font-black text-slate-500">{{ seat.seatClassName }}</div>

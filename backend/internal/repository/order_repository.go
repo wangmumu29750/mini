@@ -17,6 +17,7 @@ type OrderInventoryRow struct {
 	InventoryID     uint64
 	TrainID         uint64
 	TrainNo         string
+	TrainType       string
 	TravelDate      time.Time
 	FromStationID   uint64
 	FromStationName string
@@ -43,7 +44,9 @@ func (r *OrderRepository) Transaction(fn func(tx *gorm.DB) error) error {
 
 func (r *OrderRepository) ListByUser(userID uint64) ([]model.Order, error) {
 	var orders []model.Order
-	err := r.db.Preload("Tickets", func(db *gorm.DB) *gorm.DB {
+	err := r.db.Preload("Items", func(db *gorm.DB) *gorm.DB {
+		return db.Order("id ASC")
+	}).Preload("Tickets", func(db *gorm.DB) *gorm.DB {
 		return db.Order("id DESC")
 	}).
 		Where("user_id = ?", userID).
@@ -60,7 +63,9 @@ func (r *OrderRepository) ListByUser(userID uint64) ([]model.Order, error) {
 
 func (r *OrderRepository) FindByUserAndID(userID, orderID uint64) (model.Order, error) {
 	var order model.Order
-	err := r.db.Preload("Tickets", func(db *gorm.DB) *gorm.DB {
+	err := r.db.Preload("Items", func(db *gorm.DB) *gorm.DB {
+		return db.Order("id ASC")
+	}).Preload("Tickets", func(db *gorm.DB) *gorm.DB {
 		return db.Order("id DESC")
 	}).
 		Where("id = ? AND user_id = ?", orderID, userID).
@@ -124,6 +129,7 @@ func FindInventoryForOrder(tx *gorm.DB, travelDate time.Time, trainID, fromStati
 			i.id AS inventory_id,
 			i.train_id,
 			t.train_no,
+			t.train_type,
 			i.travel_date,
 			i.from_station_id,
 			fs.name AS from_station_name,

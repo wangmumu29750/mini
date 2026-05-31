@@ -47,14 +47,25 @@ func (s *OrderService) ClerkCreate(clerkUserID uint64, req dto.ClerkCreateOrderR
 		IDCardNo:       req.IDCardNo,
 		Phone:          req.Phone,
 		BankCardNo:     req.BankCardNo,
+		PassengerType:  model.PassengerTypeAdult,
 		VerifiedStatus: model.VerificationStatusVerified,
+	}
+	if len(req.Passengers) == 0 {
+		req.Passengers = []dto.OrderPassengerDTO{{
+			PassengerID: 1,
+			SeatType:    "SECOND",
+			TicketType:  string(model.TicketTypeAdult),
+		}}
 	}
 	return s.create(clerkUserID, req.CreateOrderRequest, passenger)
 }
 
-func (s *OrderService) create(userID uint64, req dto.CreateOrderRequest, passenger *model.PassengerProfile) (dto.OrderResponse, error) {
+func (s *OrderService) create(userID uint64, req dto.CreateOrderRequest, walkUpPassenger *model.PassengerProfile) (dto.OrderResponse, error) {
 	if req.FromStationID == req.ToStationID {
 		return dto.OrderResponse{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "出发站和到达站不能相同")
+	}
+	if len(req.Passengers) == 0 {
+		return dto.OrderResponse{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "至少选择一位乘车人")
 	}
 
 	travelDate, err := time.ParseInLocation("2006-01-02", req.TravelDate, time.Local)
@@ -70,7 +81,7 @@ func (s *OrderService) create(userID uint64, req dto.CreateOrderRequest, passeng
 	var created model.Order
 	err = s.orders.Transaction(func(tx *gorm.DB) error {
 		var existing model.Order
-		err := tx.Preload("Tickets").
+		err := tx.Preload("Items").Preload("Tickets").
 			Where("user_id = ? AND idempotency_key = ?", userID, key).
 			First(&existing).Error
 		if err == nil {
@@ -81,60 +92,99 @@ func (s *OrderService) create(userID uint64, req dto.CreateOrderRequest, passeng
 			return err
 		}
 
-		profile := model.PassengerProfile{}
-		if passenger != nil {
-			profile = *passenger
-		} else if err := tx.Where("user_id = ? AND verified_status = ?", userID, model.VerificationStatusVerified).First(&profile).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return apperrors.New(http.StatusForbidden, response.CodeForbidden, "请先完成实名乘车人信息")
-			}
-			return err
-		}
+		calculator := newTicketPriceCalculator()
+		orderItems := make([]model.OrderItem, 0, len(req.Passengers))
+		totalAmount := int64(0)
+		var snapshot repository.OrderInventoryRow
 
-		row, err := repository.FindInventoryForOrder(tx.Clauses(clause.Locking{Strength: "UPDATE"}), travelDate, req.TrainID, req.FromStationID, req.ToStationID, req.SeatClassCode)
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return apperrors.New(http.StatusNotFound, response.CodeNotFound, "未找到可预订的车次席别")
+		for i, passengerReq := range req.Passengers {
+			passengerReq.SeatType = strings.ToUpper(strings.TrimSpace(passengerReq.SeatType))
+			passengerReq.TicketType = strings.ToUpper(strings.TrimSpace(passengerReq.TicketType))
+			if passengerReq.SeatType == "" || passengerReq.TicketType == "" {
+				return apperrors.New(http.StatusBadRequest, response.CodeValidationError, "席别和票种不能为空")
 			}
-			return err
-		}
-		if row.AvailableCount <= 0 {
-			return apperrors.New(http.StatusConflict, response.CodeInsufficientInventory, "余票不足")
-		}
 
-		result := tx.Model(&model.Inventory{}).
-			Where("id = ? AND available_count > 0", row.InventoryID).
-			Updates(map[string]any{
-				"available_count": gorm.Expr("available_count - ?", 1),
-				"locked_count":    gorm.Expr("locked_count + ?", 1),
+			profile, err := passengerProfileForOrder(tx, userID, passengerReq.PassengerID, walkUpPassenger)
+			if err != nil {
+				return err
+			}
+
+			row, err := repository.FindInventoryForOrder(tx.Clauses(clause.Locking{Strength: "UPDATE"}), travelDate, req.TrainID, req.FromStationID, req.ToStationID, passengerReq.SeatType)
+			if err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return apperrors.New(http.StatusNotFound, response.CodeNotFound, "未找到可预订的车次席别")
+				}
+				return err
+			}
+			if row.AvailableCount <= 0 {
+				return apperrors.New(http.StatusConflict, response.CodeInsufficientInventory, "余票不足")
+			}
+
+			result := tx.Model(&model.Inventory{}).
+				Where("id = ? AND available_count > 0", row.InventoryID).
+				Updates(map[string]any{
+					"available_count": gorm.Expr("available_count - ?", 1),
+					"locked_count":    gorm.Expr("locked_count + ?", 1),
+				})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return apperrors.New(http.StatusConflict, response.CodeInsufficientInventory, "余票不足")
+			}
+
+			realPrice, err := calculator.Calculate(row.PriceCents, passengerReq.SeatType, passengerReq.TicketType)
+			if err != nil {
+				return err
+			}
+
+			if i == 0 {
+				snapshot = row
+			}
+			totalAmount += realPrice
+			orderItems = append(orderItems, model.OrderItem{
+				PassengerID:    profile.ID,
+				PassengerName:  profile.RealName,
+				IDCardNo:       profile.IDCardNo,
+				PassengerType:  profile.PassengerType,
+				SeatType:       model.SeatType(passengerReq.SeatType),
+				TicketType:     model.TicketType(passengerReq.TicketType),
+				BasePriceCents: row.PriceCents,
+				RealPriceCents: realPrice,
 			})
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected == 0 {
-			return apperrors.New(http.StatusConflict, response.CodeInsufficientInventory, "余票不足")
 		}
 
 		created = model.Order{
 			OrderNo:         makeBizNo("O"),
 			UserID:          userID,
-			TrainID:         row.TrainID,
-			TrainNo:         row.TrainNo,
+			TrainID:         snapshot.TrainID,
+			TrainNo:         snapshot.TrainNo,
 			TravelDate:      travelDate,
-			FromStationID:   row.FromStationID,
-			FromStationName: row.FromStationName,
-			ToStationID:     row.ToStationID,
-			ToStationName:   row.ToStationName,
-			SeatClassCode:   row.SeatClassCode,
-			SeatClassName:   seatClassName(row.SeatClassCode),
-			PassengerName:   profile.RealName,
-			IDCardNo:        profile.IDCardNo,
-			AmountCents:     row.PriceCents,
+			FromStationID:   snapshot.FromStationID,
+			FromStationName: snapshot.FromStationName,
+			ToStationID:     snapshot.ToStationID,
+			ToStationName:   snapshot.ToStationName,
+			SeatClassCode:   string(orderItems[0].SeatType),
+			SeatClassName:   seatClassName(string(orderItems[0].SeatType)),
+			PassengerName:   orderItems[0].PassengerName,
+			IDCardNo:        orderItems[0].IDCardNo,
+			AmountCents:     totalAmount,
 			Status:          model.OrderStatusPendingPayment,
 			PayExpiresAt:    time.Now().Add(time.Duration(systemSettingInt(tx, "order_pay_expire_minutes", int(s.cfg.OrderPayExpireDuration().Minutes()))) * time.Minute),
 			IdempotencyKey:  key,
 		}
-		return tx.Create(&created).Error
+		if err := tx.Create(&created).Error; err != nil {
+			return err
+		}
+
+		for i := range orderItems {
+			orderItems[i].OrderID = created.ID
+		}
+		if err := tx.Create(&orderItems).Error; err != nil {
+			return err
+		}
+		created.Items = orderItems
+		return nil
 	})
 	if err != nil {
 		return dto.OrderResponse{}, err
@@ -176,6 +226,7 @@ func (s *OrderService) Pay(userID, orderID uint64, req dto.PayOrderRequest) (dto
 	err := s.orders.Transaction(func(tx *gorm.DB) error {
 		var order model.Order
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Preload("Items", func(db *gorm.DB) *gorm.DB { return db.Order("id ASC") }).
 			Preload("Tickets").
 			Where("id = ? AND user_id = ?", orderID, userID).
 			First(&order).Error
@@ -197,33 +248,74 @@ func (s *OrderService) Pay(userID, orderID uint64, req dto.PayOrderRequest) (dto
 			return apperrors.New(http.StatusConflict, response.CodeInvalidOrderState, "当前订单状态不可支付")
 		}
 		if time.Now().After(order.PayExpiresAt) {
-			if err := releaseOrderLock(tx, order, model.OrderStatusClosed); err != nil {
+			if err := releaseOrderLocks(tx, order); err != nil {
+				return err
+			}
+			if err := tx.Model(&order).Update("status", model.OrderStatusClosed).Error; err != nil {
 				return err
 			}
 			return apperrors.New(http.StatusConflict, response.CodeInvalidOrderState, "订单已超过支付时间")
 		}
-
-		row, err := repository.FindInventoryForOrder(tx.Clauses(clause.Locking{Strength: "UPDATE"}), order.TravelDate, order.TrainID, order.FromStationID, order.ToStationID, order.SeatClassCode)
-		if err != nil {
-			return err
-		}
-		if row.LockedCount <= 0 {
-			return apperrors.New(http.StatusConflict, response.CodeInvalidOrderState, "订单锁票状态异常")
-		}
-		result := tx.Model(&model.Inventory{}).
-			Where("id = ? AND locked_count > 0", row.InventoryID).
-			Updates(map[string]any{
-				"locked_count": gorm.Expr("locked_count - ?", 1),
-				"sold_count":   gorm.Expr("sold_count + ?", 1),
-			})
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected == 0 {
-			return apperrors.New(http.StatusConflict, response.CodeInvalidOrderState, "订单锁票状态异常")
+		if len(order.Items) == 0 {
+			return apperrors.New(http.StatusConflict, response.CodeInvalidOrderState, "订单明细为空")
 		}
 
 		now := time.Now()
+		createdTickets := make([]model.Ticket, 0, len(order.Items))
+		for i, item := range order.Items {
+			row, err := repository.FindInventoryForOrder(tx.Clauses(clause.Locking{Strength: "UPDATE"}), order.TravelDate, order.TrainID, order.FromStationID, order.ToStationID, string(item.SeatType))
+			if err != nil {
+				return err
+			}
+			if row.LockedCount <= 0 {
+				return apperrors.New(http.StatusConflict, response.CodeInvalidOrderState, "订单锁票状态异常")
+			}
+			result := tx.Model(&model.Inventory{}).
+				Where("id = ? AND locked_count > 0", row.InventoryID).
+				Updates(map[string]any{
+					"locked_count": gorm.Expr("locked_count - ?", 1),
+					"sold_count":   gorm.Expr("sold_count + ?", 1),
+				})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return apperrors.New(http.StatusConflict, response.CodeInvalidOrderState, "订单锁票状态异常")
+			}
+
+			ticket := model.Ticket{
+				TicketNo:        makeBizNo("T"),
+				OrderID:         order.ID,
+				UserID:          userID,
+				TrainID:         order.TrainID,
+				TrainNo:         order.TrainNo,
+				TravelDate:      order.TravelDate,
+				FromStationID:   order.FromStationID,
+				FromStationName: order.FromStationName,
+				ToStationID:     order.ToStationID,
+				ToStationName:   order.ToStationName,
+				SeatClassCode:   string(item.SeatType),
+				SeatClassName:   seatClassName(string(item.SeatType)),
+				TicketType:      item.TicketType,
+				RealPriceCents:  item.RealPriceCents,
+				CoachNo:         makeCoachNo(row.SoldCount + i + 1),
+				SeatNo:          makeSeatNo(row.SoldCount + i + 1),
+				PassengerName:   item.PassengerName,
+				IDCardNo:        item.IDCardNo,
+				Status:          model.TicketStatusIssued,
+				IssuedAt:        now,
+			}
+			if err := tx.Create(&ticket).Error; err != nil {
+				return err
+			}
+			item.TicketID = &ticket.ID
+			item.TicketNo = ticket.TicketNo
+			if err := tx.Save(&item).Error; err != nil {
+				return err
+			}
+			createdTickets = append(createdTickets, ticket)
+		}
+
 		payment = model.Payment{
 			PaymentNo:   makeBizNo("P"),
 			OrderID:     order.ID,
@@ -237,30 +329,6 @@ func (s *OrderService) Pay(userID, orderID uint64, req dto.PayOrderRequest) (dto
 			return err
 		}
 
-		ticket := model.Ticket{
-			TicketNo:        makeBizNo("T"),
-			OrderID:         order.ID,
-			UserID:          userID,
-			TrainID:         order.TrainID,
-			TrainNo:         order.TrainNo,
-			TravelDate:      order.TravelDate,
-			FromStationID:   order.FromStationID,
-			FromStationName: order.FromStationName,
-			ToStationID:     order.ToStationID,
-			ToStationName:   order.ToStationName,
-			SeatClassCode:   order.SeatClassCode,
-			SeatClassName:   order.SeatClassName,
-			CoachNo:         makeCoachNo(row.SoldCount + 1),
-			SeatNo:          makeSeatNo(row.SoldCount + 1),
-			PassengerName:   order.PassengerName,
-			IDCardNo:        order.IDCardNo,
-			Status:          model.TicketStatusIssued,
-			IssuedAt:        now,
-		}
-		if err := tx.Create(&ticket).Error; err != nil {
-			return err
-		}
-
 		paidAt := now
 		if err := tx.Model(&order).Updates(map[string]any{
 			"status":  model.OrderStatusPaid,
@@ -270,7 +338,7 @@ func (s *OrderService) Pay(userID, orderID uint64, req dto.PayOrderRequest) (dto
 		}
 		order.Status = model.OrderStatusPaid
 		order.PaidAt = &paidAt
-		order.Tickets = []model.Ticket{ticket}
+		order.Tickets = createdTickets
 		paidOrder = order
 		return nil
 	})
@@ -289,7 +357,7 @@ func (s *OrderService) Cancel(userID, orderID uint64) (dto.OrderResponse, error)
 	err := s.orders.Transaction(func(tx *gorm.DB) error {
 		var order model.Order
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Preload("Tickets").
+			Preload("Items").
 			Where("id = ? AND user_id = ?", orderID, userID).
 			First(&order).Error
 		if err != nil {
@@ -307,7 +375,10 @@ func (s *OrderService) Cancel(userID, orderID uint64) (dto.OrderResponse, error)
 			return apperrors.New(http.StatusConflict, response.CodeInvalidOrderState, "只有待支付订单可以取消")
 		}
 
-		if err := releaseOrderLock(tx, order, model.OrderStatusCancelled); err != nil {
+		if err := releaseOrderLocks(tx, order); err != nil {
+			return err
+		}
+		if err := tx.Model(&order).Update("status", model.OrderStatusCancelled).Error; err != nil {
 			return err
 		}
 		order.Status = model.OrderStatusCancelled
@@ -327,6 +398,23 @@ func orderResponse(order model.Order) dto.OrderResponse {
 		paidAt = &formatted
 	}
 
+	ticketItems := make([]dto.OrderTicketItem, 0, len(order.Items))
+	for _, item := range order.Items {
+		ticketItems = append(ticketItems, dto.OrderTicketItem{
+			PassengerName:  item.PassengerName,
+			SeatType:       string(item.SeatType),
+			TicketType:     string(item.TicketType),
+			RealPriceCents: item.RealPriceCents,
+			TicketNo:       item.TicketNo,
+			Status:         "",
+		})
+	}
+
+	itemCount := len(order.Items)
+	if itemCount == 0 && len(order.Tickets) > 0 {
+		itemCount = len(order.Tickets)
+	}
+
 	result := dto.OrderResponse{
 		ID:            order.ID,
 		OrderNo:       order.OrderNo,
@@ -339,9 +427,11 @@ func orderResponse(order model.Order) dto.OrderResponse {
 		SeatClassName: order.SeatClassName,
 		PassengerName: order.PassengerName,
 		AmountCents:   order.AmountCents,
+		ItemCount:     itemCount,
 		Status:        string(order.Status),
 		PayExpiresAt:  order.PayExpiresAt.Format(time.RFC3339),
 		PaidAt:        paidAt,
+		Tickets:       ticketItems,
 	}
 	if order.DepartTime != nil {
 		result.DepartTime = order.DepartTime.Format(time.RFC3339)
@@ -360,12 +450,39 @@ func makeBizNo(prefix string) string {
 	return fmt.Sprintf("%s%s%06d", prefix, time.Now().Format("20060102150405"), time.Now().UnixNano()%1000000)
 }
 
-func releaseOrderLock(tx *gorm.DB, order model.Order, nextStatus model.OrderStatus) error {
-	row, err := repository.FindInventoryForOrder(tx.Clauses(clause.Locking{Strength: "UPDATE"}), order.TravelDate, order.TrainID, order.FromStationID, order.ToStationID, order.SeatClassCode)
-	if err != nil {
-		return err
+func passengerProfileForOrder(tx *gorm.DB, userID, passengerID uint64, walkUpPassenger *model.PassengerProfile) (model.PassengerProfile, error) {
+	if walkUpPassenger != nil {
+		copy := *walkUpPassenger
+		copy.ID = passengerID
+		if copy.ID == 0 {
+			copy.ID = 1
+		}
+		return copy, nil
 	}
-	if row.LockedCount > 0 {
+
+	var profile model.PassengerProfile
+	err := tx.Where("id = ? AND user_id = ? AND verified_status = ?", passengerID, userID, model.VerificationStatusVerified).First(&profile).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return model.PassengerProfile{}, apperrors.New(http.StatusNotFound, response.CodeNotFound, "乘车人不存在或未实名")
+		}
+		return model.PassengerProfile{}, err
+	}
+	return profile, nil
+}
+
+func releaseOrderLocks(tx *gorm.DB, order model.Order) error {
+	if len(order.Items) == 0 {
+		return releaseSingleOrderLock(tx, order)
+	}
+	for _, item := range order.Items {
+		row, err := repository.FindInventoryForOrder(tx.Clauses(clause.Locking{Strength: "UPDATE"}), order.TravelDate, order.TrainID, order.FromStationID, order.ToStationID, string(item.SeatType))
+		if err != nil {
+			return err
+		}
+		if row.LockedCount <= 0 {
+			continue
+		}
 		result := tx.Model(&model.Inventory{}).
 			Where("id = ? AND locked_count > 0", row.InventoryID).
 			Updates(map[string]any{
@@ -375,9 +492,23 @@ func releaseOrderLock(tx *gorm.DB, order model.Order, nextStatus model.OrderStat
 		if result.Error != nil {
 			return result.Error
 		}
-		if result.RowsAffected == 0 {
-			return apperrors.New(http.StatusConflict, response.CodeInvalidOrderState, "订单锁票状态异常")
-		}
 	}
-	return tx.Model(&order).Update("status", nextStatus).Error
+	return nil
+}
+
+func releaseSingleOrderLock(tx *gorm.DB, order model.Order) error {
+	row, err := repository.FindInventoryForOrder(tx.Clauses(clause.Locking{Strength: "UPDATE"}), order.TravelDate, order.TrainID, order.FromStationID, order.ToStationID, order.SeatClassCode)
+	if err != nil {
+		return err
+	}
+	if row.LockedCount <= 0 {
+		return nil
+	}
+	result := tx.Model(&model.Inventory{}).
+		Where("id = ? AND locked_count > 0", row.InventoryID).
+		Updates(map[string]any{
+			"available_count": gorm.Expr("available_count + ?", 1),
+			"locked_count":    gorm.Expr("locked_count - ?", 1),
+		})
+	return result.Error
 }

@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 import type { SaveInventoryPayload } from '@/api/admin'
 import type { AdminStation, AdminTrain, Inventory } from '@/types/domain'
 import { formatMoney } from '@/utils/format'
 
-defineProps<{
+const props = defineProps<{
   trains: AdminTrain[]
   stations: AdminStation[]
   inventories: Inventory[]
@@ -22,6 +24,27 @@ defineEmits<{
   flow: []
   edit: [item: Inventory]
 }>()
+
+const seatClassNames: Record<string, string> = {
+  BUSINESS: '商务座',
+  FIRST: '一等座',
+  SECOND: '二等座',
+  FIRST_SLEEPER: '一等卧',
+  SECOND_SLEEPER: '二等卧',
+  DELUXE_SOFT_SLEEPER: '高级软卧',
+  SOFT_SLEEPER: '软卧',
+  HARD_SLEEPER: '硬卧',
+  HARD_SEAT: '硬座',
+  NO_SEAT: '无座',
+}
+
+const selectedTrain = computed(() => props.trains.find((train) => train.id === props.form.trainId))
+const seatOptions = computed(() => seatClassOptions(selectedTrain.value))
+
+function seatClassOptions(train?: AdminTrain) {
+  const codes = train?.seatClassCodes?.length ? train.seatClassCodes : ['SECOND', 'FIRST', 'BUSINESS']
+  return codes.map((code) => ({ code, name: seatClassNames[code] || code }))
+}
 </script>
 
 <template>
@@ -40,8 +63,16 @@ defineEmits<{
           <select v-model.number="form.toStationId" class="form-input">
             <option v-for="station in stations" :key="station.id" :value="station.id">{{ station.name }}</option>
           </select>
-          <input v-model.trim="form.seatClassCode" class="form-input" placeholder="席别代码" />
-          <input v-model.number="form.priceCents" class="form-input" type="number" min="1" placeholder="票价分" />
+          <select v-model="form.seatClassCode" class="form-input">
+            <option
+              v-for="seat in seatOptions"
+              :key="seat.code"
+              :value="seat.code"
+            >
+              {{ seat.name }}
+            </option>
+          </select>
+          <input v-model.number="form.priceCents" class="form-input" type="number" min="0" placeholder="票价分，填 0 自动计算" />
           <input v-model.number="form.totalCount" class="form-input" type="number" min="0" placeholder="总票额" />
           <input v-model.number="form.availableCount" class="form-input" type="number" min="0" placeholder="可售" />
           <input v-model.number="form.lockedCount" class="form-input" type="number" min="0" placeholder="锁定" />

@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"mini-12306/backend/internal/model"
@@ -186,9 +187,9 @@ func demoTrainSeeds() []routeSeed {
 				{StationCode: "SHH", Order: 5, ArriveClock: "13:30:00", DepartClock: "", Mileage: 1318},
 			},
 			Inventories: []inventorySeed{
-				{SeatClassCode: "SECOND", PriceCents: 55300, TotalCount: 80, AvailableCount: 32},
-				{SeatClassCode: "FIRST", PriceCents: 93300, TotalCount: 32, AvailableCount: 10},
-				{SeatClassCode: "BUSINESS", PriceCents: 174800, TotalCount: 8, AvailableCount: 3},
+				{SeatClassCode: "SECOND", TotalCount: 80, AvailableCount: 32},
+				{SeatClassCode: "FIRST", TotalCount: 32, AvailableCount: 10},
+				{SeatClassCode: "BUSINESS", TotalCount: 8, AvailableCount: 3},
 			},
 		},
 		{
@@ -201,8 +202,8 @@ func demoTrainSeeds() []routeSeed {
 				{StationCode: "HZD", Order: 5, ArriveClock: "20:36:00", DepartClock: "", Mileage: 1477},
 			},
 			Inventories: []inventorySeed{
-				{SeatClassCode: "SECOND", PriceCents: 62400, TotalCount: 96, AvailableCount: 46},
-				{SeatClassCode: "FIRST", PriceCents: 101800, TotalCount: 42, AvailableCount: 18},
+				{SeatClassCode: "SECOND", TotalCount: 96, AvailableCount: 46},
+				{SeatClassCode: "FIRST", TotalCount: 42, AvailableCount: 18},
 			},
 		},
 	}
@@ -218,6 +219,8 @@ func demoTrainSeeds() []routeSeed {
 		{prefix: "G", start: 302, count: 10, route: []string{"SHH", "SZB", "NJH", "XZE", "JNX", "TJN", "BJN"}, miles: []int{0, 126, 295, 626, 912, 1196, 1318}},
 		{prefix: "D", start: 501, count: 10, route: []string{"BJN", "JNX", "XZE", "NJH", "HFN", "WHN"}, miles: []int{0, 406, 692, 1023, 1180, 1540}},
 		{prefix: "D", start: 602, count: 10, route: []string{"WHN", "HFN", "NJH", "SZB", "SHH", "NGH"}, miles: []int{0, 360, 517, 686, 812, 1126}},
+		{prefix: "Z", start: 35, count: 6, route: []string{"BJN", "JNX", "NJH", "SHH", "HZD"}, miles: []int{0, 406, 1023, 1318, 1477}},
+		{prefix: "T", start: 109, count: 6, route: []string{"BJN", "TJN", "JNX", "NJH", "SHH"}, miles: []int{0, 122, 406, 1023, 1318}},
 		{prefix: "K", start: 701, count: 10, route: []string{"HZD", "SHH", "SZB", "NJH", "HFN", "WHN"}, miles: []int{0, 159, 285, 454, 611, 971}},
 	}
 
@@ -270,19 +273,28 @@ func clockText(minutes int) string {
 	return fmt.Sprintf("%02d:%02d:00", minutes/60, minutes%60)
 }
 
-func buildInventories(trainType string, mileage int, index int) []inventorySeed {
-	secondPrice := int64(mileage*42 + index*180)
-	if trainType == "K" {
-		secondPrice = int64(mileage*18 + index*80)
+func buildInventories(trainType string, _ int, index int) []inventorySeed {
+	switch trainType {
+	case "D":
 		return []inventorySeed{
-			{SeatClassCode: "HARD_SEAT", PriceCents: secondPrice, TotalCount: 120, AvailableCount: 70 - index%18},
-			{SeatClassCode: "HARD_SLEEPER", PriceCents: secondPrice * 2, TotalCount: 72, AvailableCount: 36 - index%10},
+			{SeatClassCode: "SECOND", TotalCount: 120, AvailableCount: 72 - index%20},
+			{SeatClassCode: "SECOND_SLEEPER", TotalCount: 64, AvailableCount: 30 - index%10},
+			{SeatClassCode: "FIRST_SLEEPER", TotalCount: 32, AvailableCount: 16 - index%8},
 		}
-	}
-	return []inventorySeed{
-		{SeatClassCode: "SECOND", PriceCents: secondPrice, TotalCount: 120, AvailableCount: 72 - index%20},
-		{SeatClassCode: "FIRST", PriceCents: secondPrice * 16 / 10, TotalCount: 48, AvailableCount: 24 - index%12},
-		{SeatClassCode: "BUSINESS", PriceCents: secondPrice * 28 / 10, TotalCount: 12, AvailableCount: 6 - index%4},
+	case "Z", "T", "K":
+		return []inventorySeed{
+			{SeatClassCode: "HARD_SEAT", TotalCount: 120, AvailableCount: 70 - index%18},
+			{SeatClassCode: "NO_SEAT", TotalCount: 80, AvailableCount: 55 - index%15},
+			{SeatClassCode: "HARD_SLEEPER", TotalCount: 72, AvailableCount: 36 - index%10},
+			{SeatClassCode: "SOFT_SLEEPER", TotalCount: 32, AvailableCount: 14 - index%6},
+			{SeatClassCode: "DELUXE_SOFT_SLEEPER", TotalCount: 12, AvailableCount: 5 - index%3},
+		}
+	default:
+		return []inventorySeed{
+			{SeatClassCode: "SECOND", TotalCount: 120, AvailableCount: 72 - index%20},
+			{SeatClassCode: "FIRST", TotalCount: 48, AvailableCount: 24 - index%12},
+			{SeatClassCode: "BUSINESS", TotalCount: 12, AvailableCount: 6 - index%4},
+		}
 	}
 }
 
@@ -330,12 +342,19 @@ func seedStops(tx *gorm.DB, trainID uint64, stations map[string]model.Station, s
 
 type inventorySeed struct {
 	SeatClassCode  string
-	PriceCents     int64
 	TotalCount     int
 	AvailableCount int
 }
 
 func seedInventories(tx *gorm.DB, trainID, fromStationID, toStationID uint64, seeds []inventorySeed) error {
+	var train model.Train
+	if err := tx.First(&train, trainID).Error; err != nil {
+		return err
+	}
+	mileage, err := routeMileage(tx, trainID, fromStationID, toStationID)
+	if err != nil {
+		return err
+	}
 	start, _ := time.ParseInLocation("2006-01-02", time.Now().AddDate(0, 0, 1).Format("2006-01-02"), time.Local)
 	for day := 0; day < 7; day++ {
 		travelDate := start.AddDate(0, 0, day)
@@ -358,7 +377,7 @@ func seedInventories(tx *gorm.DB, trainID, fromStationID, toStationID uint64, se
 				FromStationID:  fromStationID,
 				ToStationID:    toStationID,
 				SeatClassCode:  seed.SeatClassCode,
-				PriceCents:     seed.PriceCents,
+				PriceCents:     seedFareCents(mileage, train.TrainType, seed.SeatClassCode),
 				TotalCount:     seed.TotalCount,
 				AvailableCount: seed.AvailableCount,
 				LockedCount:    0,
@@ -370,4 +389,32 @@ func seedInventories(tx *gorm.DB, trainID, fromStationID, toStationID uint64, se
 		}
 	}
 	return nil
+}
+
+func routeMileage(tx *gorm.DB, trainID, fromStationID, toStationID uint64) (int, error) {
+	var fromStop model.TrainStop
+	if err := tx.Where("train_id = ? AND station_id = ?", trainID, fromStationID).First(&fromStop).Error; err != nil {
+		return 0, err
+	}
+	var toStop model.TrainStop
+	if err := tx.Where("train_id = ? AND station_id = ?", trainID, toStationID).First(&toStop).Error; err != nil {
+		return 0, err
+	}
+	return toStop.Mileage - fromStop.Mileage, nil
+}
+
+func seedFareCents(mileage int, trainType string, seatClassCode string) int64 {
+	coefficients := map[string]map[string]float64{
+		"G": {"BUSINESS": 10.0, "FIRST": 5.8, "SECOND": 3.5},
+		"C": {"BUSINESS": 10.0, "FIRST": 5.8, "SECOND": 3.5},
+		"D": {"FIRST_SLEEPER": 5.0, "SECOND_SLEEPER": 3.8, "SECOND": 3.0},
+		"Z": {"DELUXE_SOFT_SLEEPER": 4.0, "SOFT_SLEEPER": 3.0, "HARD_SLEEPER": 2.0, "HARD_SEAT": 1.0, "NO_SEAT": 1.0},
+		"T": {"DELUXE_SOFT_SLEEPER": 4.0, "SOFT_SLEEPER": 3.0, "HARD_SLEEPER": 2.0, "HARD_SEAT": 1.0, "NO_SEAT": 1.0},
+		"K": {"DELUXE_SOFT_SLEEPER": 4.0, "SOFT_SLEEPER": 3.0, "HARD_SLEEPER": 2.0, "HARD_SEAT": 1.0, "NO_SEAT": 1.0},
+	}
+	coefficient := coefficients[trainType][seatClassCode]
+	if coefficient == 0 {
+		coefficient = 1
+	}
+	return int64(math.Round(float64(mileage)*13*coefficient/100) * 100)
 }

@@ -17,6 +17,8 @@ type Ticket struct {
 	ToStationName   string       `gorm:"size:64;not null" json:"toStationName"`
 	SeatClassCode   string       `gorm:"size:32;not null" json:"seatClassCode"`
 	SeatClassName   string       `gorm:"size:64;not null" json:"seatClassName"`
+	TicketType      TicketType   `gorm:"size:20;not null;default:ADULT;index" json:"ticketType"`
+	RealPriceCents  int64        `gorm:"not null" json:"realPriceCents"`
 	DepartTime      *time.Time   `gorm:"-" json:"-"`
 	ArriveTime      *time.Time   `gorm:"-" json:"-"`
 	CoachNo         string       `gorm:"size:16;not null;default:'04'" json:"coachNo"`

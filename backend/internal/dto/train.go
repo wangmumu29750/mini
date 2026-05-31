@@ -15,6 +15,7 @@ type SeatOptionResponse struct {
 type TrainSearchItemResponse struct {
 	TrainID         uint64               `json:"trainId"`
 	TrainNo         string               `json:"trainNo"`
+	TrainType       string               `json:"trainType"`
 	TravelDate      string               `json:"travelDate"`
 	FromStation     StationResponse      `json:"fromStation"`
 	ToStation       StationResponse      `json:"toStation"`

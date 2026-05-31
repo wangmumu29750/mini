@@ -51,20 +51,3 @@ func (s *TrainService) Search(query dto.TrainSearchQuery) ([]dto.TrainSearchItem
 
 	return trainSearchRowsToResponses(date, rows), nil
 }
-
-func seatClassName(code string) string {
-	switch code {
-	case "BUSINESS":
-		return "商务座"
-	case "FIRST":
-		return "一等座"
-	case "SECOND":
-		return "二等座"
-	case "HARD_SEAT":
-		return "硬座"
-	case "HARD_SLEEPER":
-		return "硬卧"
-	default:
-		return code
-	}
-}

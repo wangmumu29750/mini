@@ -116,6 +116,45 @@ func (s *AuthService) CurrentUser(id uint64) (dto.CurrentUserResponse, error) {
 	return currentUserResponse(*user), nil
 }
 
+func (s *AuthService) ListPassengerProfiles(userID uint64) ([]dto.PassengerSummaryResponse, error) {
+	profiles, err := s.users.ListPassengerProfilesByUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]dto.PassengerSummaryResponse, 0, len(profiles))
+	for _, profile := range profiles {
+		result = append(result, dto.PassengerSummaryResponse{
+			ID:             profile.ID,
+			RealName:       profile.RealName,
+			IDCardNoMasked: maskIDCardNo(profile.IDCardNo),
+			PassengerType:  string(profile.PassengerType),
+		})
+	}
+	return result, nil
+}
+
+func (s *AuthService) CreatePassengerProfile(userID uint64, req dto.PassengerProfileRequest) (dto.PassengerSummaryResponse, error) {
+	profile := &model.PassengerProfile{
+		UserID:         userID,
+		RealName:       strings.TrimSpace(req.RealName),
+		IDCardNo:       strings.TrimSpace(req.IDCardNo),
+		Phone:          strings.TrimSpace(req.Phone),
+		BankCardNo:     strings.TrimSpace(req.BankCardNo),
+		PassengerType:  model.PassengerType(strings.ToUpper(strings.TrimSpace(req.PassengerType))),
+		VerifiedStatus: model.VerificationStatusVerified,
+	}
+	if err := s.users.CreatePassengerProfile(profile); err != nil {
+		return dto.PassengerSummaryResponse{}, err
+	}
+	return dto.PassengerSummaryResponse{
+		ID:             profile.ID,
+		RealName:       profile.RealName,
+		IDCardNoMasked: maskIDCardNo(profile.IDCardNo),
+		PassengerType:  string(profile.PassengerType),
+	}, nil
+}
+
 func (s *AuthService) authResponse(user model.User) (dto.AuthResponse, error) {
 	token, err := auth.GenerateToken(s.cfg.JWTSecret, s.cfg.TokenExpireDuration(), auth.Principal{
 		UserID:   user.ID,

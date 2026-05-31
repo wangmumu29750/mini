@@ -13,9 +13,20 @@ export interface SeatOption {
   availableCount: number
 }
 
+export type SeatType = 'SECOND' | 'FIRST' | 'BUSINESS' | string
+export type TicketType = 'ADULT' | 'STUDENT' | 'CHILD' | string
+
+export interface PassengerSummary {
+  id: number
+  realName: string
+  idCardNoMasked: string
+  passengerType: TicketType
+}
+
 export interface TrainSearchItem {
   trainId: number
   trainNo: string
+  trainType: string
   travelDate: string
   fromStation: Station
   toStation: Station
@@ -68,6 +79,7 @@ export interface AdminTrain {
   id: number
   trainNo: string
   trainType: string
+  seatClassCodes: string[]
   status: 'ACTIVE' | 'DISABLED' | string
   stopCount: number
   createdAt: string
@@ -89,6 +101,7 @@ export interface Inventory {
   id: number
   trainId: number
   trainNo: string
+  trainType: string
   travelDate: string
   fromStation: Station
   toStation: Station
@@ -134,11 +147,22 @@ export interface Order {
   seatClassName: string
   passengerName: string
   amountCents: number
+  itemCount: number
   status: 'PENDING_PAYMENT' | 'CANCELLED' | 'PAID' | 'CLOSED' | string
   payExpiresAt: string
   paidAt?: string
   ticketNo?: string
   ticketStatus?: string
+  tickets?: OrderTicketItem[]
+}
+
+export interface OrderTicketItem {
+  passengerName: string
+  seatType: SeatType
+  ticketType: TicketType
+  realPriceCents: number
+  ticketNo?: string
+  status?: string
 }
 
 export interface PaymentResult {

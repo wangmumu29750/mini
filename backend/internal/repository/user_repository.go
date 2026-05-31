@@ -67,3 +67,22 @@ func (r *UserRepository) PhoneExists(phone string) (bool, error) {
 	}
 	return count > 0, nil
 }
+
+func (r *UserRepository) ListPassengerProfilesByUser(userID uint64) ([]model.PassengerProfile, error) {
+	var profiles []model.PassengerProfile
+	err := r.db.Where("user_id = ?", userID).Order("id DESC").Find(&profiles).Error
+	return profiles, err
+}
+
+func (r *UserRepository) FindPassengerProfileByID(userID, passengerID uint64) (*model.PassengerProfile, error) {
+	var profile model.PassengerProfile
+	err := r.db.Where("user_id = ? AND id = ?", userID, passengerID).First(&profile).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &profile, err
+}
+
+func (r *UserRepository) CreatePassengerProfile(profile *model.PassengerProfile) error {
+	return r.db.Create(profile).Error
+}

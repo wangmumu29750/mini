@@ -403,6 +403,7 @@ func trainSearchRowsToResponses(date time.Time, rows []repository.TrainSearchRow
 			item = &dto.TrainSearchItemResponse{
 				TrainID:    row.TrainID,
 				TrainNo:    row.TrainNo,
+				TrainType:  row.TrainType,
 				TravelDate: date.Format("2006-01-02"),
 				FromStation: dto.StationResponse{
 					ID:   row.FromStationID,

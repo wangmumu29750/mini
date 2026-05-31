@@ -53,6 +53,7 @@ func New(cfg config.Config, db *gorm.DB) *gin.Engine {
 			authGroup.POST("/login", authHandler.Login)
 			authGroup.POST("/logout", authHandler.Logout)
 			authGroup.GET("/me", middleware.AuthRequired(cfg.JWTSecret), authHandler.Me)
+			authGroup.GET("/passengers", middleware.AuthRequired(cfg.JWTSecret), authHandler.ListPassengers)
 		}
 
 		api.GET("/stations", adminHandler.PublicStations)

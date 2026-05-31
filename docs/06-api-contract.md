@@ -102,6 +102,7 @@
 {
   "trainId": 1,
   "trainNo": "G101",
+  "trainType": "G",
   "travelDate": "2026-06-01",
   "fromStation": {"id": 1, "name": "北京南"},
   "toStation": {"id": 5, "name": "上海虹桥"},
@@ -132,7 +133,10 @@
   "travelDate": "2026-06-01",
   "fromStationId": 1,
   "toStationId": 5,
-  "seatClassCode": "SECOND",
+  "passengers": [
+    {"passengerId": 1, "seatType": "SECOND", "ticketType": "ADULT"},
+    {"passengerId": 2, "seatType": "SECOND", "ticketType": "CHILD"}
+  ],
   "idempotencyKey": "uuid-from-client"
 }
 ```
@@ -224,6 +228,7 @@ Implemented authenticated endpoints:
 | GET | `/orders/{orderId}` | Get current user's order detail |
 | POST | `/orders/{orderId}/cancel` | Cancel pending-payment order and release locked inventory |
 | POST | `/orders/{orderId}/payments` | Mock payment and ticket issuing |
+| GET | `/auth/passengers` | List current user's verified passenger profiles for order confirmation |
 
 Create order request:
 
@@ -233,7 +238,9 @@ Create order request:
   "travelDate": "2026-05-24",
   "fromStationId": 1,
   "toStationId": 5,
-  "seatClassCode": "SECOND",
+  "passengers": [
+    {"passengerId": 1, "seatType": "SECOND", "ticketType": "ADULT"}
+  ],
   "idempotencyKey": "uuid-from-client"
 }
 ```
@@ -253,8 +260,12 @@ Order response:
   "seatClassName": "二等座",
   "passengerName": "张三",
   "amountCents": 55300,
+  "itemCount": 1,
   "status": "PENDING_PAYMENT",
-  "payExpiresAt": "2026-05-23T15:45:00+08:00"
+  "payExpiresAt": "2026-05-23T15:45:00+08:00",
+  "tickets": [
+    {"passengerName": "张三", "seatType": "SECOND", "ticketType": "ADULT", "realPriceCents": 55300}
+  ]
 }
 ```
 
@@ -484,6 +495,8 @@ Train save request:
 }
 ```
 
+`trainType` must match the first letter of `trainNo`, and supported values are `G`, `C`, `D`, `Z`, `T`, and `K`. Train list responses include `seatClassCodes`, the seat classes allowed for that train type.
+
 Train stops replace request:
 
 ```json
@@ -512,6 +525,8 @@ Inventory save request:
   "status": "ACTIVE"
 }
 ```
+
+When saving inventory, `seatClassCode` must be valid for the train type. `priceCents` may be `0`; in that case the backend calculates the fare from stop mileage and the seat coefficient matrix before saving.
 
 Inventory flow request:
 

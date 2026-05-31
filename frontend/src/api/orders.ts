@@ -1,12 +1,16 @@
 import { request } from '@/api/http'
-import type { Order, PaymentResult } from '@/types/domain'
+import type { Order, PassengerSummary, PaymentResult } from '@/types/domain'
 
 export interface CreateOrderPayload {
   trainId: number
   travelDate: string
   fromStationId: number
   toStationId: number
-  seatClassCode: string
+  passengers: Array<{
+    passengerId: number
+    seatType: string
+    ticketType: string
+  }>
   idempotencyKey: string
 }
 
@@ -22,6 +26,20 @@ export function fetchOrders() {
   return request<Order[]>({
     method: 'GET',
     url: '/orders',
+  })
+}
+
+export function fetchOrder(orderId: number) {
+  return request<Order>({
+    method: 'GET',
+    url: `/orders/${orderId}`,
+  })
+}
+
+export function fetchPassengers() {
+  return request<PassengerSummary[]>({
+    method: 'GET',
+    url: '/auth/passengers',
   })
 }
 

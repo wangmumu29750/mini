@@ -63,25 +63,25 @@ func optionalDate(value string) (*time.Time, error) {
 	return &date, nil
 }
 
-func ensureTrainAndStations(tx *gorm.DB, trainID, fromStationID, toStationID uint64) error {
+func ensureTrainAndStations(tx *gorm.DB, trainID, fromStationID, toStationID uint64) (model.Train, error) {
 	var train model.Train
 	if err := tx.First(&train, trainID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.New(http.StatusNotFound, response.CodeNotFound, "车次不存在")
+			return model.Train{}, apperrors.New(http.StatusNotFound, response.CodeNotFound, "车次不存在")
 		}
-		return err
+		return model.Train{}, err
 	}
 
 	for _, stationID := range []uint64{fromStationID, toStationID} {
 		var station model.Station
 		if err := tx.First(&station, stationID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return apperrors.New(http.StatusNotFound, response.CodeNotFound, "站点不存在")
+				return model.Train{}, apperrors.New(http.StatusNotFound, response.CodeNotFound, "站点不存在")
 			}
-			return err
+			return model.Train{}, err
 		}
 	}
-	return nil
+	return train, nil
 }
 
 func lowestPriceForTrain(db *gorm.DB, trainID uint64) (int64, error) {
@@ -111,14 +111,19 @@ func stationResponse(station model.Station) dto.AdminStationResponse {
 }
 
 func trainResponse(train model.Train) dto.AdminTrainResponse {
+	seatClassCodes := make([]string, 0, len(supportedSeatClasses(train.TrainType)))
+	for _, rule := range supportedSeatClasses(train.TrainType) {
+		seatClassCodes = append(seatClassCodes, rule.Code)
+	}
 	return dto.AdminTrainResponse{
-		ID:        train.ID,
-		TrainNo:   train.TrainNo,
-		TrainType: train.TrainType,
-		Status:    string(train.Status),
-		StopCount: int64(len(train.Stops)),
-		CreatedAt: train.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: train.UpdatedAt.Format(time.RFC3339),
+		ID:             train.ID,
+		TrainNo:        train.TrainNo,
+		TrainType:      train.TrainType,
+		SeatClassCodes: seatClassCodes,
+		Status:         string(train.Status),
+		StopCount:      int64(len(train.Stops)),
+		CreatedAt:      train.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:      train.UpdatedAt.Format(time.RFC3339),
 	}
 }
 
@@ -140,6 +145,7 @@ func inventoryRowResponse(row repository.InventoryRow) dto.InventoryResponse {
 		ID:             row.ID,
 		TrainID:        row.TrainID,
 		TrainNo:        row.TrainNo,
+		TrainType:      row.TrainType,
 		TravelDate:     row.TravelDate.Format("2006-01-02"),
 		FromStation:    dto.StationResponse{ID: row.FromStationID, Name: row.FromStationName},
 		ToStation:      dto.StationResponse{ID: row.ToStationID, Name: row.ToStationName},

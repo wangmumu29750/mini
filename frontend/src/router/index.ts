@@ -43,6 +43,18 @@ const routes: RouteRecordRaw[] = [
         meta: { requiresAuth: true, roles: ['PASSENGER'] },
       },
       {
+        path: 'orders/confirm',
+        name: 'confirm-order',
+        component: () => import('@/pages/ConfirmOrderPage.vue'),
+        meta: { requiresAuth: true, roles: ['PASSENGER'] },
+      },
+      {
+        path: 'orders/payment/:orderId',
+        name: 'payment',
+        component: () => import('@/pages/PaymentPage.vue'),
+        meta: { requiresAuth: true, roles: ['PASSENGER'] },
+      },
+      {
         path: 'tickets',
         name: 'tickets',
         component: () => import('@/pages/TicketsPage.vue'),

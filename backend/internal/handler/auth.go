@@ -74,3 +74,17 @@ func (h *AuthHandler) Me(c *gin.Context) {
 func (h *AuthHandler) Logout(c *gin.Context) {
 	response.OK(c, nil)
 }
+
+func (h *AuthHandler) ListPassengers(c *gin.Context) {
+	principal, ok := currentPrincipal(c)
+	if !ok {
+		return
+	}
+
+	result, err := h.auth.ListPassengerProfiles(principal.UserID)
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	response.OK(c, result)
+}

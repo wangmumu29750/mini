@@ -36,7 +36,10 @@
 | id_card_no | 身份证号，唯一 |
 | phone | 手机号，唯一 |
 | bank_card_no | 银行卡号，可脱敏展示 |
+| passenger_type | `ADULT` / `STUDENT` / `CHILD` |
 | verified_status | `PENDING` / `VERIFIED` / `FAILED` |
+
+多乘车人购票切片要求一个账号可维护多名乘车人，`passenger_profiles.user_id` 只能是普通索引，不能再使用唯一索引。已有数据库如果存在 `user_id` 唯一约束，需要先删除该唯一索引。
 
 ### stations
 
@@ -58,7 +61,7 @@
 | --- | --- |
 | id | 主键 |
 | train_no | 车次号，唯一 |
-| train_type | 如 `G`、`D`、`K` |
+| train_type | 车次类型，支持 `G` / `C` / `D` / `Z` / `T` / `K`，必须与车次号前缀一致 |
 | status | `ACTIVE` / `DISABLED` |
 
 ### train_stops
@@ -102,6 +105,8 @@
 | to_station_id | 到达站 |
 | seat_class_code | 席别 |
 | price_cents | 票价，分 |
+
+当前实现可由后端按 `区间里程 * 每公里基础票价 * 席别系数` 动态生成价格后落到 `price_cents`。基础票价为每公里 13 分；席别系数矩阵与业务规则文档一致。
 
 ### inventories
 
@@ -159,6 +164,26 @@
 | price_cents | 票价 |
 | status | 车票状态 |
 | refunded_at | 退票完成时间，可空 |
+| ticket_type | `ADULT` / `STUDENT` / `CHILD` |
+| real_price_cents | 实付票价，分 |
+
+### order_items
+
+订单明细表，用于一个订单包含多名乘车人、多席别和多票种。
+
+| 字段 | 说明 |
+| --- | --- |
+| order_id | 订单 ID |
+| passenger_id | 乘车人 ID |
+| passenger_name | 乘车人姓名快照 |
+| id_card_no | 身份证号快照 |
+| passenger_type | 乘车人类型 |
+| seat_type | 席别代码 |
+| ticket_type | 票种 |
+| base_price_cents | 原始席别票价，分 |
+| real_price_cents | 策略计价后的实付单价，分 |
+| ticket_id | 支付出票后关联的车票 ID |
+| ticket_no | 支付出票后关联的票号 |
 
 ### payments
 
@@ -286,3 +311,5 @@ Current admin maintenance notes:
 - The current MVP keeps seat-class quote and inventory in `inventories.price_cents`, `total_count`, `available_count`, `locked_count`, and `sold_count`.
 - The admin inventory save API upserts by `(train_id, travel_date, from_station_id, to_station_id, seat_class_code)`.
 - Inventory flow updates use row locks and map actions to the existing counters: `LOCK` moves available to locked, `PAY` moves locked to sold, `RELEASE` moves locked to available, `REFUND` and `CHANGE_OUT` move sold to available, and `CHANGE_IN` moves available to sold.
+- Inventory save validates that the selected seat class is allowed by the train type. Sending `price_cents = 0` lets the backend calculate and persist the fare from train stop mileage and the seat coefficient matrix.
+- Orders now support multiple `order_items`. Order creation locks one inventory unit for each passenger item; payment moves each locked unit to sold and creates one `tickets` row per item.

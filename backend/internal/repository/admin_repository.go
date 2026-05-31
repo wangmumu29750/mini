@@ -16,6 +16,7 @@ type InventoryRow struct {
 	ID              uint64
 	TrainID         uint64
 	TrainNo         string
+	TrainType       string
 	TravelDate      time.Time
 	FromStationID   uint64
 	FromStationName string
@@ -141,6 +142,7 @@ func (r *AdminRepository) ListInventories(page, pageSize int, trainID uint64, se
 			i.id,
 			i.train_id,
 			t.train_no,
+			t.train_type,
 			i.travel_date,
 			i.from_station_id,
 			fs.name AS from_station_name,

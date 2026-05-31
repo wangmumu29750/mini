@@ -39,13 +39,14 @@ type SaveStationRequest struct {
 }
 
 type AdminTrainResponse struct {
-	ID        uint64 `json:"id"`
-	TrainNo   string `json:"trainNo"`
-	TrainType string `json:"trainType"`
-	Status    string `json:"status"`
-	StopCount int64  `json:"stopCount"`
-	CreatedAt string `json:"createdAt"`
-	UpdatedAt string `json:"updatedAt"`
+	ID             uint64   `json:"id"`
+	TrainNo        string   `json:"trainNo"`
+	TrainType      string   `json:"trainType"`
+	SeatClassCodes []string `json:"seatClassCodes"`
+	Status         string   `json:"status"`
+	StopCount      int64    `json:"stopCount"`
+	CreatedAt      string   `json:"createdAt"`
+	UpdatedAt      string   `json:"updatedAt"`
 }
 
 type AdminTrainListQuery struct {
@@ -99,6 +100,7 @@ type InventoryResponse struct {
 	ID             uint64          `json:"id"`
 	TrainID        uint64          `json:"trainId"`
 	TrainNo        string          `json:"trainNo"`
+	TrainType      string          `json:"trainType"`
 	TravelDate     string          `json:"travelDate"`
 	FromStation    StationResponse `json:"fromStation"`
 	ToStation      StationResponse `json:"toStation"`
