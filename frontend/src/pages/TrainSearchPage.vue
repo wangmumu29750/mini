@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { fetchStations, searchTrains } from '@/api/trains'
@@ -21,15 +21,27 @@ const loading = ref(false)
 const stationLoading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
+const autoSearchReady = ref(false)
 const onlyHighSpeed = ref(false)
 const sortMode = ref<'depart' | 'duration' | 'price'>('depart')
 const sortDirection = ref<'asc' | 'desc'>('asc')
+let searchTimer: ReturnType<typeof setTimeout> | null = null
 
-const tomorrow = new Date()
-tomorrow.setDate(tomorrow.getDate() + 1)
-const defaultTravelDate = tomorrow.toISOString().slice(0, 10)
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function addDays(base: Date, offset: number) {
+  const next = new Date(base)
+  next.setDate(base.getDate() + offset)
+  return next
+}
+
 const query = reactive({
-  date: defaultTravelDate,
+  date: formatLocalDate(addDays(new Date(), 1)),
   fromStationId: '',
   toStationId: '',
 })
@@ -38,11 +50,10 @@ const canSearch = computed(() => query.date && query.fromStationId && query.toSt
 const quickDates = computed(() => {
   const base = new Date()
   return [0, 1, 2, 5].map((offset) => {
-    const date = new Date(base)
-    date.setDate(base.getDate() + offset)
+    const date = addDays(base, offset)
     return {
       label: offset === 0 ? '今天' : offset === 1 ? '明天' : offset === 2 ? '后天' : '五天后',
-      value: date.toISOString().slice(0, 10),
+      value: formatLocalDate(date),
       text: `${date.getMonth() + 1}月${date.getDate()}日`,
     }
   })
@@ -83,6 +94,7 @@ onMounted(async () => {
         query.toStationId = String(target.id)
       }
       await handleSearch()
+      autoSearchReady.value = true
     }
   } catch (error) {
     errorMessage.value = (error as ApiErrorPayload).message
@@ -90,6 +102,22 @@ onMounted(async () => {
     stationLoading.value = false
   }
 })
+
+watch(
+  () => [query.date, query.fromStationId, query.toStationId],
+  () => {
+    if (!autoSearchReady.value || stationLoading.value || !canSearch.value) {
+      return
+    }
+
+    if (searchTimer) {
+      clearTimeout(searchTimer)
+    }
+    searchTimer = setTimeout(() => {
+      handleSearch()
+    }, 180)
+  },
+)
 
 async function handleSearch() {
   if (!canSearch.value) {
@@ -144,6 +172,18 @@ async function selectQuickDate(date: string) {
 
 function minPrice(train: TrainSearchItem) {
   return Math.min(...train.seatOptions.map((seat) => seat.priceCents))
+}
+
+function seatAvailabilityLabel(seat: SeatOption) {
+  if (seat.availableCount <= 0) return '售罄'
+  if (seat.availableCount <= 5) return `余票紧张 · ${seat.availableCount}张`
+  return `余票充足 · ${seat.availableCount}张`
+}
+
+function seatAvailabilityClass(seat: SeatOption) {
+  if (seat.availableCount <= 0) return 'text-red-500'
+  if (seat.availableCount <= 5) return 'text-amber-600'
+  return 'text-emerald-600'
 }
 
 function trainType(trainNo: string) {
@@ -277,14 +317,17 @@ function sortLabel() {
               <button
                 v-for="seat in train.seatOptions"
                 :key="seat.seatClassCode"
-                class="rounded-lg border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-emerald-200 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                class="rounded-lg border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-emerald-200 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-red-100 disabled:bg-red-50 disabled:opacity-80"
                 type="button"
                 :disabled="seat.availableCount <= 0"
                 @click="handleBook(train, seat)"
               >
                 <div class="text-sm font-black text-slate-500">{{ seat.seatClassName }}</div>
                 <div class="mt-2 text-xl font-black text-slate-900">{{ formatMoney(seat.priceCents) }}</div>
-                <div class="mt-1 text-sm font-bold" :class="seat.availableCount > 0 ? 'text-emerald-600' : 'text-slate-400'">
+                <div class="mt-1 text-sm font-bold" :class="seatAvailabilityClass(seat)">
+                  {{ seatAvailabilityLabel(seat) }}
+                </div>
+                <div class="hidden mt-1 text-sm font-bold" :class="seat.availableCount > 0 ? 'text-emerald-600' : 'text-slate-400'">
                   {{ seat.availableCount > 0 ? `余 ${seat.availableCount}` : '无票' }}
                 </div>
               </button>

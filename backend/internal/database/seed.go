@@ -183,8 +183,10 @@ func demoTrainSeeds() []routeSeed {
 				{StationCode: "BJN", Order: 1, ArriveClock: "", DepartClock: "08:00:00", Mileage: 0},
 				{StationCode: "TJN", Order: 2, ArriveClock: "08:32:00", DepartClock: "08:35:00", Mileage: 122},
 				{StationCode: "JNX", Order: 3, ArriveClock: "09:48:00", DepartClock: "09:52:00", Mileage: 406},
-				{StationCode: "NJH", Order: 4, ArriveClock: "11:52:00", DepartClock: "11:56:00", Mileage: 1023},
-				{StationCode: "SHH", Order: 5, ArriveClock: "13:30:00", DepartClock: "", Mileage: 1318},
+				{StationCode: "XZE", Order: 4, ArriveClock: "10:35:00", DepartClock: "10:40:00", Mileage: 692},
+				{StationCode: "NJH", Order: 5, ArriveClock: "11:26:00", DepartClock: "11:30:00", Mileage: 1023},
+				{StationCode: "SZB", Order: 6, ArriveClock: "12:03:00", DepartClock: "12:07:00", Mileage: 1192},
+				{StationCode: "SHH", Order: 7, ArriveClock: "13:30:00", DepartClock: "", Mileage: 1318},
 			},
 			Inventories: []inventorySeed{
 				{SeatClassCode: "SECOND", TotalCount: 80, AvailableCount: 32},
@@ -193,13 +195,16 @@ func demoTrainSeeds() []routeSeed {
 			},
 		},
 		{
-			TrainNo: "G137", TrainType: "G", FromStation: "BJN", ToStation: "HZD",
+			TrainNo: "G137", TrainType: "G", FromStation: "SHH", ToStation: "HZD",
 			Stops: []stopSeed{
-				{StationCode: "BJN", Order: 1, ArriveClock: "", DepartClock: "14:10:00", Mileage: 0},
-				{StationCode: "JNX", Order: 2, ArriveClock: "15:58:00", DepartClock: "16:03:00", Mileage: 406},
-				{StationCode: "NJH", Order: 3, ArriveClock: "18:06:00", DepartClock: "18:11:00", Mileage: 1023},
-				{StationCode: "SHH", Order: 4, ArriveClock: "19:38:00", DepartClock: "19:45:00", Mileage: 1318},
-				{StationCode: "HZD", Order: 5, ArriveClock: "20:36:00", DepartClock: "", Mileage: 1477},
+				{StationCode: "SHH", Order: 1, ArriveClock: "", DepartClock: "14:10:00", Mileage: 0},
+				{StationCode: "SZB", Order: 2, ArriveClock: "14:52:00", DepartClock: "14:55:00", Mileage: 126},
+				{StationCode: "NJH", Order: 3, ArriveClock: "15:48:00", DepartClock: "15:52:00", Mileage: 295},
+				{StationCode: "XZE", Order: 4, ArriveClock: "16:35:00", DepartClock: "16:39:00", Mileage: 626},
+				{StationCode: "JNX", Order: 5, ArriveClock: "17:22:00", DepartClock: "17:26:00", Mileage: 912},
+				{StationCode: "TJN", Order: 6, ArriveClock: "18:18:00", DepartClock: "18:21:00", Mileage: 1196},
+				{StationCode: "BJN", Order: 7, ArriveClock: "19:46:00", DepartClock: "19:50:00", Mileage: 1318},
+				{StationCode: "HZD", Order: 8, ArriveClock: "20:36:00", DepartClock: "", Mileage: 1477},
 			},
 			Inventories: []inventorySeed{
 				{SeatClassCode: "SECOND", TotalCount: 96, AvailableCount: 46},
@@ -317,15 +322,11 @@ func findOrCreateTrain(tx *gorm.DB, trainNo string, trainType string) (model.Tra
 }
 
 func seedStops(tx *gorm.DB, trainID uint64, stations map[string]model.Station, seeds []stopSeed) error {
+	if err := tx.Unscoped().Where("train_id = ?", trainID).Delete(&model.TrainStop{}).Error; err != nil {
+		return err
+	}
 	for _, seed := range seeds {
 		station := stations[seed.StationCode]
-		var count int64
-		if err := tx.Model(&model.TrainStop{}).Where("train_id = ? AND station_id = ?", trainID, station.ID).Count(&count).Error; err != nil {
-			return err
-		}
-		if count > 0 {
-			continue
-		}
 		if err := tx.Create(&model.TrainStop{
 			TrainID:     trainID,
 			StationID:   station.ID,
@@ -355,40 +356,103 @@ func seedInventories(tx *gorm.DB, trainID, fromStationID, toStationID uint64, se
 	if err != nil {
 		return err
 	}
-	start, _ := time.ParseInLocation("2006-01-02", time.Now().AddDate(0, 0, 1).Format("2006-01-02"), time.Local)
+	start, _ := time.ParseInLocation("2006-01-02", time.Now().Format("2006-01-02"), time.Local)
 	for day := 0; day < 7; day++ {
 		travelDate := start.AddDate(0, 0, day)
 		travelDateText := travelDate.Format("2006-01-02")
+		if !trainRunsOnDay(train.TrainNo, day) {
+			continue
+		}
 		for _, seed := range seeds {
-			var count int64
-			err := tx.Model(&model.Inventory{}).
-				Where("train_id = ? AND DATE(travel_date) = ? AND from_station_id = ? AND to_station_id = ? AND seat_class_code = ?", trainID, travelDateText, fromStationID, toStationID, seed.SeatClassCode).
-				Count(&count).Error
-			if err != nil {
-				return err
+			totalCount := seed.TotalCount - day
+			if totalCount < 1 {
+				totalCount = 1
 			}
-			if count > 0 {
-				continue
-			}
+			availableCount := demoAvailableCount(train.TrainNo, seed.SeatClassCode, seed.AvailableCount, totalCount, day)
 
-			if err := tx.Create(&model.Inventory{
+			inventory := model.Inventory{
 				TrainID:        trainID,
 				TravelDate:     travelDate,
 				FromStationID:  fromStationID,
 				ToStationID:    toStationID,
 				SeatClassCode:  seed.SeatClassCode,
 				PriceCents:     seedFareCents(mileage, train.TrainType, seed.SeatClassCode),
-				TotalCount:     seed.TotalCount,
-				AvailableCount: seed.AvailableCount,
+				TotalCount:     totalCount,
+				AvailableCount: availableCount,
 				LockedCount:    0,
-				SoldCount:      seed.TotalCount - seed.AvailableCount,
+				SoldCount:      totalCount - availableCount,
 				Status:         model.InventoryStatusActive,
-			}).Error; err != nil {
+			}
+
+			var existing model.Inventory
+			err := tx.Where("train_id = ? AND DATE(travel_date) = ? AND from_station_id = ? AND to_station_id = ? AND seat_class_code = ?", trainID, travelDateText, fromStationID, toStationID, seed.SeatClassCode).
+				First(&existing).Error
+			if err == nil {
+				existing.PriceCents = inventory.PriceCents
+				existing.TotalCount = inventory.TotalCount
+				existing.AvailableCount = inventory.AvailableCount
+				existing.LockedCount = inventory.LockedCount
+				existing.SoldCount = inventory.SoldCount
+				existing.Status = inventory.Status
+				if err := tx.Save(&existing).Error; err != nil {
+					return err
+				}
+				continue
+			}
+			if err != gorm.ErrRecordNotFound {
+				return err
+			}
+
+			if err := tx.Create(&inventory).Error; err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+func trainRunsOnDay(trainNo string, day int) bool {
+	return true
+}
+
+func demoAvailableCount(trainNo, seatClassCode string, baseAvailable, totalCount, day int) int {
+	if totalCount <= 0 {
+		return 0
+	}
+
+	trainWeight := 0
+	for _, char := range trainNo {
+		if char >= '0' && char <= '9' {
+			trainWeight += int(char - '0')
+		}
+	}
+	seatWeight := len(seatClassCode) % 5
+	variation := (day+1)*(trainWeight%7+3) + seatWeight*2
+	availableCount := baseAvailable - variation
+
+	if day%3 == 0 && seatWeight == 0 {
+		availableCount = 0
+	}
+	if day%4 == 1 && (seatClassCode == "BUSINESS" || seatClassCode == "DELUXE_SOFT_SLEEPER") {
+		availableCount = 0
+	}
+	if day%5 == 2 {
+		availableCount = minInt(3+trainWeight%4, totalCount)
+	}
+	if availableCount < 0 {
+		availableCount = 0
+	}
+	if availableCount > totalCount {
+		availableCount = totalCount
+	}
+	return availableCount
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func routeMileage(tx *gorm.DB, trainID, fromStationID, toStationID uint64) (int, error) {
