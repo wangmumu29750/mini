@@ -22,7 +22,14 @@ func Test_normalizePage(t *testing.T) {
 		want  int
 		want1 int
 	}{
-		// TODO: Add test cases.
+		{name: "valid page and size", args: args{page: 1, pageSize: 20}, want: 1, want1: 20},
+		{name: "zero page defaults to 1", args: args{page: 0, pageSize: 20}, want: 1, want1: 20},
+		{name: "negative page defaults to 1", args: args{page: -1, pageSize: 20}, want: 1, want1: 20},
+		{name: "zero page size defaults to 20", args: args{page: 1, pageSize: 0}, want: 1, want1: 20},
+		{name: "negative page size defaults to 20", args: args{page: 1, pageSize: -5}, want: 1, want1: 20},
+		{name: "page size capped at 100", args: args{page: 1, pageSize: 200}, want: 1, want1: 100},
+		{name: "page size exactly 100", args: args{page: 2, pageSize: 100}, want: 2, want1: 100},
+		{name: "both zero use defaults", args: args{page: 0, pageSize: 0}, want: 1, want1: 20},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
