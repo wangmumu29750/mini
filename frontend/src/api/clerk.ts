@@ -1,8 +1,8 @@
 import { request } from '@/api/http'
-import type { ClerkCreateOrderPayload, Order } from '@/types/domain'
+import type { ClerkCreateOrderPayload, PaymentResult } from '@/types/domain'
 
 export function createClerkOrder(payload: ClerkCreateOrderPayload) {
-  return request<Order>({
+  return request<PaymentResult>({
     method: 'POST',
     url: '/clerk/orders',
     data: payload,

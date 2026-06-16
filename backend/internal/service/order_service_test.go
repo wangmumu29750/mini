@@ -15,6 +15,7 @@ func TestNewOrderService(t *testing.T) {
 	type args struct {
 		cfg    config.Config
 		orders *repository.OrderRepository
+		users  *repository.UserRepository
 	}
 	tests := []struct {
 		name string
@@ -25,7 +26,7 @@ func TestNewOrderService(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewOrderService(tt.args.cfg, tt.args.orders); !reflect.DeepEqual(got, tt.want) {
+			if got := NewOrderService(tt.args.cfg, tt.args.orders, tt.args.users); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("NewOrderService() = %v, want %v", got, tt.want)
 			}
 		})
@@ -41,7 +42,7 @@ func TestOrderService_Create(t *testing.T) {
 		name    string
 		s       *OrderService
 		args    args
-		want    dto.OrderResponse
+		want    dto.PaymentResponse
 		wantErr bool
 	}{
 		// TODO: Add test cases.

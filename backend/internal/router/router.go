@@ -36,7 +36,7 @@ func New(cfg config.Config, db *gorm.DB) *gin.Engine {
 		adminRepo := repository.NewAdminRepository(db)
 		authService := service.NewAuthService(cfg, userRepo)
 		trainService := service.NewTrainService(trainRepo)
-		orderService := service.NewOrderService(cfg, orderRepo)
+		orderService := service.NewOrderService(cfg, orderRepo, userRepo)
 		ticketService := service.NewTicketService(ticketRepo)
 		settingService := service.NewSystemSettingService(settingRepo)
 		adminService := service.NewAdminService(adminRepo)
@@ -54,6 +54,7 @@ func New(cfg config.Config, db *gorm.DB) *gin.Engine {
 			authGroup.POST("/logout", authHandler.Logout)
 			authGroup.GET("/me", middleware.AuthRequired(cfg.JWTSecret), authHandler.Me)
 			authGroup.GET("/passengers", middleware.AuthRequired(cfg.JWTSecret), authHandler.ListPassengers)
+			authGroup.POST("/passengers", middleware.AuthRequired(cfg.JWTSecret), authHandler.CreatePassenger)
 		}
 
 		api.GET("/stations", adminHandler.PublicStations)

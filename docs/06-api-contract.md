@@ -229,6 +229,7 @@ Implemented authenticated endpoints:
 | POST | `/orders/{orderId}/cancel` | Cancel pending-payment order and release locked inventory |
 | POST | `/orders/{orderId}/payments` | Mock payment and ticket issuing |
 | GET | `/auth/passengers` | List current user's verified passenger profiles for order confirmation |
+| POST | `/auth/passengers` | Create a verified accompanying passenger profile for buying tickets for another traveler |
 
 Create order request:
 
@@ -242,6 +243,23 @@ Create order request:
     {"passengerId": 1, "seatType": "SECOND", "ticketType": "ADULT"}
   ],
   "idempotencyKey": "uuid-from-client"
+}
+```
+
+Current create-order conflict behavior notes:
+
+- `POST /orders` returns `409 CONFLICT` when the same passenger already has an active order for the same `trainId + travelDate`.
+- The duplicate check also rejects selecting the same passenger twice inside one order request.
+
+Create passenger request:
+
+```json
+{
+  "realName": "李四",
+  "idCardNo": "110101200001011234",
+  "phone": "13900139000",
+  "bankCardNo": "6222020202020202021",
+  "passengerType": "ADULT"
 }
 ```
 
@@ -335,7 +353,7 @@ Implemented clerk/admin endpoints:
 
 | Method | Path | Role | Description |
 | --- | --- | --- | --- |
-| POST | `/clerk/orders` | `CLERK` / `ADMIN` | Create an order for a walk-up passenger and lock inventory |
+| POST | `/clerk/orders` | `CLERK` / `ADMIN` | Sell a ticket for an already-registered passenger, complete mock payment, and issue the ticket immediately |
 | GET | `/admin/settings` | `ADMIN` | List system settings |
 | PUT | `/admin/settings` | `ADMIN` | Update supported system settings |
 
@@ -353,6 +371,22 @@ Clerk order request:
   "phone": "13800138000",
   "bankCardNo": "6222020202020202020",
   "idempotencyKey": "uuid-from-client"
+}
+```
+
+Clerk order response data:
+
+```json
+{
+  "paymentNo": "P20260523153100123456",
+  "order": {
+    "id": 1,
+    "orderNo": "O20260523153000123456",
+    "passengerName": "寮犱笁",
+    "status": "PAID",
+    "ticketNo": "T20260523153100123456",
+    "ticketStatus": "ISSUED"
+  }
 }
 ```
 

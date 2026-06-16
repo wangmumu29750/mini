@@ -104,7 +104,7 @@ async function handleSubmit() {
   successMessage.value = ''
 
   try {
-    const order = await createClerkOrder({
+    const result = await createClerkOrder({
       trainId: selectedTrain.value.trainId,
       travelDate: selectedTrain.value.travelDate,
       fromStationId: selectedTrain.value.fromStation.id,
@@ -113,7 +113,7 @@ async function handleSubmit() {
       idempotencyKey: `clerk-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       ...passenger,
     })
-    successMessage.value = `已为 ${order.passengerName} 创建订单 ${order.orderNo}，待模拟支付。`
+    successMessage.value = `已为 ${result.order.passengerName} 完成购票，订单 ${result.order.orderNo}，票号 ${result.order.ticketNo ?? '待生成'}，支付流水 ${result.paymentNo}。`
     decrementSeatAvailability(selectedTrain.value, selectedSeat.value)
     selectedSeat.value = null
   } catch (error) {

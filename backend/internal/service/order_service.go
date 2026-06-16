@@ -22,42 +22,49 @@ import (
 type OrderService struct {
 	cfg    config.Config
 	orders *repository.OrderRepository
+	users  *repository.UserRepository
 }
 
-func NewOrderService(cfg config.Config, orders *repository.OrderRepository) *OrderService {
-	return &OrderService{cfg: cfg, orders: orders}
+func NewOrderService(cfg config.Config, orders *repository.OrderRepository, users *repository.UserRepository) *OrderService {
+	return &OrderService{cfg: cfg, orders: orders, users: users}
 }
 
 func (s *OrderService) Create(userID uint64, req dto.CreateOrderRequest) (dto.OrderResponse, error) {
 	return s.create(userID, req, nil)
 }
 
-func (s *OrderService) ClerkCreate(clerkUserID uint64, req dto.ClerkCreateOrderRequest) (dto.OrderResponse, error) {
+func (s *OrderService) ClerkCreate(_ uint64, req dto.ClerkCreateOrderRequest) (dto.PaymentResponse, error) {
 	req.PassengerName = strings.TrimSpace(req.PassengerName)
 	req.IDCardNo = strings.TrimSpace(req.IDCardNo)
 	req.Phone = strings.TrimSpace(req.Phone)
 	req.BankCardNo = strings.TrimSpace(req.BankCardNo)
 
 	if err := mock.VerifyIdentity(req.PassengerName, req.IDCardNo, req.Phone, req.BankCardNo); err != nil {
-		return dto.OrderResponse{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, err.Error())
+		return dto.PaymentResponse{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, err.Error())
 	}
 
-	passenger := &model.PassengerProfile{
-		RealName:       req.PassengerName,
-		IDCardNo:       req.IDCardNo,
-		Phone:          req.Phone,
-		BankCardNo:     req.BankCardNo,
-		PassengerType:  model.PassengerTypeAdult,
-		VerifiedStatus: model.VerificationStatusVerified,
+	passenger, err := s.resolveClerkPassenger(req)
+	if err != nil {
+		return dto.PaymentResponse{}, err
 	}
-	if len(req.Passengers) == 0 {
-		req.Passengers = []dto.OrderPassengerDTO{{
-			PassengerID: 1,
-			SeatType:    "SECOND",
-			TicketType:  string(model.TicketTypeAdult),
-		}}
+	createReq := dto.CreateOrderRequest{
+		TrainID:        req.TrainID,
+		TravelDate:     req.TravelDate,
+		FromStationID:  req.FromStationID,
+		ToStationID:    req.ToStationID,
+		IdempotencyKey: req.IdempotencyKey,
+		Passengers: []dto.OrderPassengerDTO{{
+			PassengerID: passenger.ID,
+			SeatType:    strings.ToUpper(strings.TrimSpace(req.SeatClassCode)),
+			TicketType:  ticketTypeForPassengerType(passenger.PassengerType),
+		}},
 	}
-	return s.create(clerkUserID, req.CreateOrderRequest, passenger)
+
+	order, err := s.create(passenger.UserID, createReq, nil)
+	if err != nil {
+		return dto.PaymentResponse{}, err
+	}
+	return s.Pay(passenger.UserID, order.ID, dto.PayOrderRequest{Channel: "CLERK_COUNTER"})
 }
 
 func (s *OrderService) create(userID uint64, req dto.CreateOrderRequest, walkUpPassenger *model.PassengerProfile) (dto.OrderResponse, error) {
@@ -99,6 +106,7 @@ func (s *OrderService) create(userID uint64, req dto.CreateOrderRequest, walkUpP
 		orderItems := make([]model.OrderItem, 0, len(req.Passengers))
 		totalAmount := int64(0)
 		var snapshot repository.OrderInventoryRow
+		selectedPassengers := make(map[uint64]struct{}, len(req.Passengers))
 
 		for i, passengerReq := range req.Passengers {
 			passengerReq.SeatType = strings.ToUpper(strings.TrimSpace(passengerReq.SeatType))
@@ -110,6 +118,18 @@ func (s *OrderService) create(userID uint64, req dto.CreateOrderRequest, walkUpP
 			profile, err := passengerProfileForOrder(tx, userID, passengerReq.PassengerID, walkUpPassenger)
 			if err != nil {
 				return err
+			}
+			if _, exists := selectedPassengers[profile.ID]; exists {
+				return apperrors.New(http.StatusConflict, response.CodeConflict, "同一乘车人不能在同一订单中重复购票")
+			}
+			selectedPassengers[profile.ID] = struct{}{}
+
+			hasActiveTrip, err := s.orders.ExistsActiveTripForPassenger(tx, profile.ID, travelDate, req.TrainID)
+			if err != nil {
+				return err
+			}
+			if hasActiveTrip {
+				return apperrors.New(http.StatusConflict, response.CodeConflict, "同一乘车人已存在相同行程订单，请勿重复购票")
 			}
 
 			row, err := repository.FindInventoryForOrder(tx.Clauses(clause.Locking{Strength: "UPDATE"}), travelDate, req.TrainID, req.FromStationID, req.ToStationID, passengerReq.SeatType)
@@ -454,6 +474,31 @@ func orderResponse(order model.Order) dto.OrderResponse {
 
 func makeBizNo(prefix string) string {
 	return fmt.Sprintf("%s%s%06d", prefix, time.Now().Format("20060102150405"), time.Now().UnixNano()%1000000)
+}
+
+func (s *OrderService) resolveClerkPassenger(req dto.ClerkCreateOrderRequest) (*model.PassengerProfile, error) {
+	profile, err := s.users.FindVerifiedPassengerProfileByIdentity(req.IDCardNo)
+	if err != nil {
+		return nil, err
+	}
+	if profile == nil {
+		return nil, apperrors.New(http.StatusNotFound, response.CodeNotFound, "鏃呭灏氭湭娉ㄥ唽鎴栨湭瀹炲悕锛岃鍏堢敱鏃呭瀹屾垚娉ㄥ唽")
+	}
+	if profile.RealName != req.PassengerName || profile.Phone != req.Phone || profile.BankCardNo != req.BankCardNo {
+		return nil, apperrors.New(http.StatusConflict, response.CodeConflict, "鍞エ鍙板綍鍏ョ殑鏃呭淇℃伅涓庡凡娉ㄥ唽瀹炲悕淇℃伅涓嶄竴鑷?")
+	}
+	return profile, nil
+}
+
+func ticketTypeForPassengerType(passengerType model.PassengerType) string {
+	switch passengerType {
+	case model.PassengerTypeStudent:
+		return string(model.TicketTypeStudent)
+	case model.PassengerTypeChild:
+		return string(model.TicketTypeChild)
+	default:
+		return string(model.TicketTypeAdult)
+	}
 }
 
 func passengerProfileForOrder(tx *gorm.DB, userID, passengerID uint64, walkUpPassenger *model.PassengerProfile) (model.PassengerProfile, error) {

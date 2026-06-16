@@ -24,3 +24,11 @@ export interface RegisterRequest {
   phone: string
   bankCardNo: string
 }
+
+export interface CreatePassengerProfileRequest {
+  realName: string
+  idCardNo: string
+  phone: string
+  bankCardNo: string
+  passengerType: 'ADULT' | 'STUDENT' | 'CHILD' | string
+}

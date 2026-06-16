@@ -2,12 +2,14 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { createPassenger } from '@/api/auth'
 import { createOrder, fetchPassengers } from '@/api/orders'
 import { searchTrains } from '@/api/trains'
 import EmptyState from '@/components/EmptyState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import type { ApiErrorPayload } from '@/types/api'
-import type { PassengerSummary, SeatOption, TicketType, TrainSearchItem } from '@/types/domain'
+import type { CreatePassengerProfileRequest } from '@/types/auth'
+import type { PassengerSummary, TicketType, TrainSearchItem } from '@/types/domain'
 import { formatDuration, formatMoney, formatTime } from '@/utils/format'
 
 type PassengerDraft = {
@@ -22,11 +24,19 @@ const router = useRouter()
 
 const loading = ref(false)
 const submitting = ref(false)
+const creatingPassenger = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 const train = ref<TrainSearchItem | null>(null)
 const passengers = ref<PassengerSummary[]>([])
 const drafts = ref<PassengerDraft[]>([])
+const newPassenger = ref<CreatePassengerProfileRequest>({
+  realName: '',
+  idCardNo: '',
+  phone: '',
+  bankCardNo: '',
+  passengerType: 'ADULT',
+})
 
 const query = computed(() => ({
   trainId: Number(route.query.trainId),
@@ -53,18 +63,32 @@ async function loadPage() {
       }),
       fetchPassengers(),
     ])
+
     train.value = trainOptions.find((item) => item.trainId === query.value.trainId) || null
     passengers.value = passengerItems
-    drafts.value = passengerItems.map((passenger, index) => ({
-      passengerId: passenger.id,
-      selected: index === 0,
-      seatType: query.value.seatType,
-      ticketType: defaultTicketType(passenger.passengerType),
-    }))
+    drafts.value = rebuildPassengerDrafts(passengerItems, drafts.value)
   } catch (error) {
     errorMessage.value = (error as ApiErrorPayload).message
   } finally {
     loading.value = false
+  }
+}
+
+async function submitNewPassenger() {
+  creatingPassenger.value = true
+  errorMessage.value = ''
+  successMessage.value = ''
+  try {
+    const created = await createPassenger(newPassenger.value)
+    const passengerItems = await fetchPassengers()
+    passengers.value = passengerItems
+    drafts.value = rebuildPassengerDrafts(passengerItems, drafts.value, created.id)
+    newPassenger.value = emptyPassengerForm()
+    successMessage.value = '同行乘车人已添加，现在可以一起购票。'
+  } catch (error) {
+    errorMessage.value = (error as ApiErrorPayload).message
+  } finally {
+    creatingPassenger.value = false
   }
 }
 
@@ -90,7 +114,7 @@ async function submitOrder() {
       })),
       idempotencyKey: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     })
-    successMessage.value = '订单已创建，正在前往支付收银台。'
+    successMessage.value = '订单已创建，正在前往支付页面。'
     await router.push({ name: 'payment', params: { orderId: order.id } })
   } catch (error) {
     errorMessage.value = (error as ApiErrorPayload).message
@@ -116,7 +140,9 @@ function displayPrice(draft: PassengerDraft) {
   if (draft.ticketType === 'STUDENT') {
     return Math.round(base * studentDiscountFactor())
   }
-  if (draft.ticketType === 'CHILD') return Math.round(base * 0.5)
+  if (draft.ticketType === 'CHILD') {
+    return Math.round(base * 0.5)
+  }
   return base
 }
 
@@ -125,8 +151,12 @@ function studentDiscountFactor() {
   return ['Z', 'T', 'K'].includes(type) ? 0.6 : 0.75
 }
 
+function passengerById(id: number) {
+  return passengers.value.find((item) => item.id === id)
+}
+
 function passengerName(id: number) {
-  return passengers.value.find((item) => item.id === id)?.realName || '乘车人'
+  return passengerById(id)?.realName || '乘车人'
 }
 
 function defaultTicketType(value: string): TicketType {
@@ -142,23 +172,69 @@ function ticketTypeName(value: string) {
 }
 
 function ticketTypeOptions(draft: PassengerDraft) {
-  const options = [
-    { value: 'ADULT', label: '成人票' },
-    { value: 'STUDENT', label: '学生票' },
-  ]
-  return options
+  const passengerType = passengerById(draft.passengerId)?.passengerType
+  if (passengerType === 'CHILD') {
+    return [{ value: 'CHILD', label: '儿童票' }]
+  }
+  if (passengerType === 'STUDENT') {
+    return [
+      { value: 'ADULT', label: '成人票' },
+      { value: 'STUDENT', label: '学生票' },
+    ]
+  }
+  return [{ value: 'ADULT', label: '成人票' }]
+}
+
+function emptyPassengerForm(): CreatePassengerProfileRequest {
+  return {
+    realName: '',
+    idCardNo: '',
+    phone: '',
+    bankCardNo: '',
+    passengerType: 'ADULT',
+  }
+}
+
+function normalizeTicketType(current: string | undefined, passengerType: string): TicketType {
+  if (passengerType === 'CHILD') {
+    return 'CHILD'
+  }
+  if (passengerType === 'STUDENT') {
+    if (current === 'ADULT' || current === 'STUDENT') {
+      return current
+    }
+    return 'STUDENT'
+  }
+  return 'ADULT'
+}
+
+function rebuildPassengerDrafts(
+  passengerItems: PassengerSummary[],
+  previousDrafts: PassengerDraft[],
+  selectedPassengerId?: number,
+) {
+  const previousMap = new Map(previousDrafts.map((item) => [item.passengerId, item]))
+  return passengerItems.map((passenger, index) => {
+    const previous = previousMap.get(passenger.id)
+    return {
+      passengerId: passenger.id,
+      selected: selectedPassengerId ? passenger.id === selectedPassengerId : (previous?.selected ?? index === 0),
+      seatType: previous?.seatType || query.value.seatType,
+      ticketType: normalizeTicketType(previous?.ticketType, passenger.passengerType) || defaultTicketType(passenger.passengerType),
+    }
+  })
 }
 </script>
 
 <template>
   <main>
-    <PageHeader title="确认订单" description="核对车次信息，选择乘车人与票种。前端金额仅用于核对，最终金额以后端计价为准。" />
+    <PageHeader title="确认订单" description="核对车次信息，选择乘车人与票种。最终金额以后端订单计算为准。" />
 
     <section class="mx-auto max-w-7xl px-4 py-6 sm:px-8">
       <p v-if="errorMessage" class="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{{ errorMessage }}</p>
       <p v-if="successMessage" class="mb-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{{ successMessage }}</p>
 
-      <div v-if="loading" class="rounded-lg border border-slate-200 bg-white p-6 text-sm font-bold text-slate-500">加载订单信息中...</div>
+      <div v-if="loading" class="rounded-lg border border-slate-200 bg-white p-6 text-sm font-bold text-slate-500">正在加载订单信息...</div>
 
       <EmptyState v-else-if="!train" title="未找到车次" description="请返回车次查询页重新选择车次。" />
 
@@ -190,15 +266,37 @@ function ticketTypeOptions(draft: PassengerDraft) {
               <span class="text-sm font-bold text-slate-400">已选 {{ selectedDrafts.length }} 人</span>
             </div>
 
+            <form class="mb-5 grid gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 p-4 md:grid-cols-2" @submit.prevent="submitNewPassenger">
+              <input v-model.trim="newPassenger.realName" class="form-input" type="text" placeholder="乘车人姓名" />
+              <select v-model="newPassenger.passengerType" class="form-input">
+                <option value="ADULT">成人</option>
+                <option value="STUDENT">学生</option>
+                <option value="CHILD">儿童</option>
+              </select>
+              <input v-model.trim="newPassenger.idCardNo" class="form-input" type="text" placeholder="身份证号" />
+              <input v-model.trim="newPassenger.phone" class="form-input" type="text" placeholder="手机号" />
+              <input v-model.trim="newPassenger.bankCardNo" class="form-input md:col-span-2" type="text" placeholder="银行卡号" />
+              <div class="flex items-center justify-between gap-3 md:col-span-2">
+                <p class="text-xs font-bold text-slate-400">添加同行人后，可直接为该乘车人一起购票。</p>
+                <button class="btn-secondary" type="submit" :disabled="creatingPassenger">
+                  {{ creatingPassenger ? '添加中...' : '新增乘车人' }}
+                </button>
+              </div>
+            </form>
+
             <EmptyState v-if="!drafts.length" title="暂无乘车人" description="当前账号还没有可选实名乘车人。" />
 
             <div v-else class="space-y-4">
-              <article v-for="draft in drafts" :key="draft.passengerId" class="grid gap-4 rounded-lg border border-slate-100 bg-slate-50 p-4 lg:grid-cols-[220px_1fr_1fr_140px] lg:items-center">
+              <article
+                v-for="draft in drafts"
+                :key="draft.passengerId"
+                class="grid gap-4 rounded-lg border border-slate-100 bg-slate-50 p-4 lg:grid-cols-[220px_1fr_1fr_140px] lg:items-center"
+              >
                 <label class="flex items-center gap-3">
                   <input v-model="draft.selected" class="rounded border-slate-300 text-teal-600 focus:ring-teal-500" type="checkbox" />
                   <span>
                     <span class="block text-base font-black text-slate-800">{{ passengerName(draft.passengerId) }}</span>
-                    <span class="text-xs font-bold text-slate-400">{{ passengers.find((item) => item.id === draft.passengerId)?.idCardNoMasked }}</span>
+                    <span class="text-xs font-bold text-slate-400">{{ passengerById(draft.passengerId)?.idCardNoMasked }}</span>
                   </span>
                 </label>
 

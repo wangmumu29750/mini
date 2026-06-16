@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"strings"
 
 	"mini-12306/backend/internal/model"
 
@@ -77,6 +78,17 @@ func (r *UserRepository) ListPassengerProfilesByUser(userID uint64) ([]model.Pas
 func (r *UserRepository) FindPassengerProfileByID(userID, passengerID uint64) (*model.PassengerProfile, error) {
 	var profile model.PassengerProfile
 	err := r.db.Where("user_id = ? AND id = ?", userID, passengerID).First(&profile).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &profile, err
+}
+
+func (r *UserRepository) FindVerifiedPassengerProfileByIdentity(idCardNo string) (*model.PassengerProfile, error) {
+	var profile model.PassengerProfile
+	err := r.db.
+		Where("id_card_no = ? AND verified_status = ?", strings.TrimSpace(idCardNo), model.VerificationStatusVerified).
+		First(&profile).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}

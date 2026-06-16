@@ -1,5 +1,6 @@
 import { request } from '@/api/http'
-import type { CurrentUser, LoginRequest, LoginResponse, RegisterRequest } from '@/types/auth'
+import type { CurrentUser, CreatePassengerProfileRequest, LoginRequest, LoginResponse, RegisterRequest } from '@/types/auth'
+import type { PassengerSummary } from '@/types/domain'
 
 export function login(payload: LoginRequest) {
   return request<LoginResponse>({
@@ -31,3 +32,10 @@ export function logout() {
   })
 }
 
+export function createPassenger(payload: CreatePassengerProfileRequest) {
+  return request<PassengerSummary>({
+    method: 'POST',
+    url: '/auth/passengers',
+    data: payload,
+  })
+}

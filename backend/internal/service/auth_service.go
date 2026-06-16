@@ -135,13 +135,42 @@ func (s *AuthService) ListPassengerProfiles(userID uint64) ([]dto.PassengerSumma
 }
 
 func (s *AuthService) CreatePassengerProfile(userID uint64, req dto.PassengerProfileRequest) (dto.PassengerSummaryResponse, error) {
+	req.RealName = strings.TrimSpace(req.RealName)
+	req.IDCardNo = strings.TrimSpace(req.IDCardNo)
+	req.Phone = strings.TrimSpace(req.Phone)
+	req.BankCardNo = strings.TrimSpace(req.BankCardNo)
+	req.PassengerType = strings.ToUpper(strings.TrimSpace(req.PassengerType))
+
+	if err := mock.VerifyIdentity(req.RealName, req.IDCardNo, req.Phone, req.BankCardNo); err != nil {
+		return dto.PassengerSummaryResponse{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, err.Error())
+	}
+	if !isSupportedPassengerType(req.PassengerType) {
+		return dto.PassengerSummaryResponse{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "不支持的乘车人类型")
+	}
+
+	idCardExists, err := s.users.IDCardExists(req.IDCardNo)
+	if err != nil {
+		return dto.PassengerSummaryResponse{}, err
+	}
+	if idCardExists {
+		return dto.PassengerSummaryResponse{}, apperrors.New(http.StatusConflict, response.CodeConflict, "身份证号已绑定其他乘车人")
+	}
+
+	phoneExists, err := s.users.PhoneExists(req.Phone)
+	if err != nil {
+		return dto.PassengerSummaryResponse{}, err
+	}
+	if phoneExists {
+		return dto.PassengerSummaryResponse{}, apperrors.New(http.StatusConflict, response.CodeConflict, "手机号已绑定其他乘车人")
+	}
+
 	profile := &model.PassengerProfile{
 		UserID:         userID,
-		RealName:       strings.TrimSpace(req.RealName),
-		IDCardNo:       strings.TrimSpace(req.IDCardNo),
-		Phone:          strings.TrimSpace(req.Phone),
-		BankCardNo:     strings.TrimSpace(req.BankCardNo),
-		PassengerType:  model.PassengerType(strings.ToUpper(strings.TrimSpace(req.PassengerType))),
+		RealName:       req.RealName,
+		IDCardNo:       req.IDCardNo,
+		Phone:          req.Phone,
+		BankCardNo:     req.BankCardNo,
+		PassengerType:  model.PassengerType(req.PassengerType),
 		VerifiedStatus: model.VerificationStatusVerified,
 	}
 	if err := s.users.CreatePassengerProfile(profile); err != nil {
@@ -153,6 +182,15 @@ func (s *AuthService) CreatePassengerProfile(userID uint64, req dto.PassengerPro
 		IDCardNoMasked: maskIDCardNo(profile.IDCardNo),
 		PassengerType:  string(profile.PassengerType),
 	}, nil
+}
+
+func isSupportedPassengerType(value string) bool {
+	switch model.PassengerType(value) {
+	case model.PassengerTypeAdult, model.PassengerTypeStudent, model.PassengerTypeChild:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *AuthService) authResponse(user model.User) (dto.AuthResponse, error) {

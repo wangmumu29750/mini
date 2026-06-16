@@ -23,11 +23,16 @@ type PassengerSummaryResponse struct {
 }
 
 type ClerkCreateOrderRequest struct {
-	CreateOrderRequest
-	PassengerName string `json:"passengerName" binding:"required,min=2,max=64"`
-	IDCardNo      string `json:"idCardNo" binding:"required,min=6,max=32"`
-	Phone         string `json:"phone" binding:"required,min=6,max=20"`
-	BankCardNo    string `json:"bankCardNo" binding:"required,min=12,max=32"`
+	TrainID        uint64 `json:"trainId" binding:"required"`
+	TravelDate     string `json:"travelDate" binding:"required"`
+	FromStationID  uint64 `json:"fromStationId" binding:"required"`
+	ToStationID    uint64 `json:"toStationId" binding:"required"`
+	SeatClassCode  string `json:"seatClassCode" binding:"required"`
+	IdempotencyKey string `json:"idempotencyKey"`
+	PassengerName  string `json:"passengerName" binding:"required,min=2,max=64"`
+	IDCardNo       string `json:"idCardNo" binding:"required,min=6,max=32"`
+	Phone          string `json:"phone" binding:"required,min=6,max=20"`
+	BankCardNo     string `json:"bankCardNo" binding:"required,min=12,max=32"`
 }
 
 type PayOrderRequest struct {

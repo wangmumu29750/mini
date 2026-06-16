@@ -81,6 +81,33 @@ func (r *OrderRepository) FindByUserAndID(userID, orderID uint64) (model.Order, 
 	return order, err
 }
 
+func (r *OrderRepository) ExistsActiveTripForPassenger(
+	db *gorm.DB,
+	passengerID uint64,
+	travelDate time.Time,
+	trainID uint64,
+) (bool, error) {
+	var count int64
+	query := db
+	if query == nil {
+		query = r.db
+	}
+	err := query.Table("order_items AS oi").
+		Joins("JOIN orders AS o ON o.id = oi.order_id").
+		Where(
+			`oi.passenger_id = ? AND DATE(o.travel_date) = ? AND o.train_id = ? AND o.status IN ?`,
+			passengerID,
+			travelDate.Format("2006-01-02"),
+			trainID,
+			[]model.OrderStatus{model.OrderStatusPendingPayment, model.OrderStatusPaid},
+		).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func attachOrderTimes(db *gorm.DB, orders []model.Order) error {
 	for i := range orders {
 		depart, arrive, err := stationTimes(db, orders[i].TravelDate, orders[i].TrainID, orders[i].FromStationID, orders[i].ToStationID)

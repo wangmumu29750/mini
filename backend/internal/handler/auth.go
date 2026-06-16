@@ -88,3 +88,23 @@ func (h *AuthHandler) ListPassengers(c *gin.Context) {
 	}
 	response.OK(c, result)
 }
+
+func (h *AuthHandler) CreatePassenger(c *gin.Context) {
+	principal, ok := currentPrincipal(c)
+	if !ok {
+		return
+	}
+
+	var req dto.PassengerProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeValidationError, "乘车人信息不完整或格式不正确")
+		return
+	}
+
+	result, err := h.auth.CreatePassengerProfile(principal.UserID, req)
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	response.OK(c, result)
+}
