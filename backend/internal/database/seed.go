@@ -298,7 +298,10 @@ func buildStops(stations []string, miles []int, baseMinutes int) []stopSeed {
 	for i, stationCode := range stations {
 		arriveClock := ""
 		departClock := ""
-		stopMinutes := baseMinutes + i*48 + i*i*4
+		stopMinutes := baseMinutes + i*32
+		if i > 1 {
+			stopMinutes += (i - 1) * 4
+		}
 		if i > 0 {
 			arriveClock = clockText(stopMinutes)
 		}
@@ -445,6 +448,85 @@ func seedRouteInventories(tx *gorm.DB, trainID uint64, stations map[string]model
 		return nil
 	}
 	return tx.CreateInBatches(inventories, 1000).Error
+}
+
+func seedInventories(tx *gorm.DB, trainID uint64, fromStationID uint64, toStationID uint64, seeds []inventorySeed) error {
+	var train model.Train
+	if err := tx.First(&train, trainID).Error; err != nil {
+		return err
+	}
+
+	mileage, err := routeMileage(tx, trainID, fromStationID, toStationID)
+	if err != nil {
+		return err
+	}
+
+	start, _ := time.ParseInLocation("2006-01-02", time.Now().Format("2006-01-02"), time.Local)
+	end := start.AddDate(0, 0, 7)
+	if err := tx.Unscoped().
+		Where("train_id = ? AND from_station_id = ? AND to_station_id = ? AND travel_date >= ? AND travel_date < ?", trainID, fromStationID, toStationID, start, end).
+		Delete(&model.Inventory{}).Error; err != nil {
+		return err
+	}
+
+	inventories := make([]model.Inventory, 0, len(seeds)*7)
+	for day := 0; day < 7; day++ {
+		travelDate := start.AddDate(0, 0, day)
+		for _, seed := range seeds {
+			totalCount := seed.TotalCount - day
+			if totalCount < 1 {
+				totalCount = 1
+			}
+			availableCount := demoAvailableCount(train.TrainNo, seed.SeatClassCode, seed.AvailableCount, totalCount, day)
+			inventories = append(inventories, model.Inventory{
+				TrainID:        trainID,
+				TravelDate:     travelDate,
+				FromStationID:  fromStationID,
+				ToStationID:    toStationID,
+				SeatClassCode:  seed.SeatClassCode,
+				PriceCents:     seedFareCents(mileage, train.TrainType, seed.SeatClassCode),
+				TotalCount:     totalCount,
+				AvailableCount: availableCount,
+				LockedCount:    0,
+				SoldCount:      totalCount - availableCount,
+				Status:         model.InventoryStatusActive,
+			})
+		}
+	}
+	if len(inventories) == 0 {
+		return nil
+	}
+	return tx.CreateInBatches(inventories, 1000).Error
+}
+
+func trainRunsOnDay(_ string, _ int) bool {
+	return true
+}
+
+func routeMileage(tx *gorm.DB, trainID uint64, fromStationID uint64, toStationID uint64) (int, error) {
+	var stops []model.TrainStop
+	if err := tx.Where("train_id = ?", trainID).Order("stop_order asc").Find(&stops).Error; err != nil {
+		return 0, err
+	}
+
+	fromIndex := -1
+	toIndex := -1
+	fromMileage := 0
+	toMileage := 0
+	for index, stop := range stops {
+		if stop.StationID == fromStationID && fromIndex == -1 {
+			fromIndex = index
+			fromMileage = stop.Mileage
+		}
+		if stop.StationID == toStationID && toIndex == -1 {
+			toIndex = index
+			toMileage = stop.Mileage
+		}
+	}
+	if fromIndex == -1 || toIndex == -1 || fromIndex >= toIndex {
+		return 0, fmt.Errorf("invalid route segment for train %d: %d -> %d", trainID, fromStationID, toStationID)
+	}
+	return toMileage - fromMileage, nil
 }
 
 func demoAvailableCount(trainNo, seatClassCode string, baseAvailable, totalCount, day int) int {

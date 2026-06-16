@@ -13,6 +13,8 @@ type TicketResponse struct {
 	ArriveTime     string          `json:"arriveTime,omitempty"`
 	SeatClassCode  string          `json:"seatClassCode"`
 	SeatClassName  string          `json:"seatClassName"`
+	TicketType     string          `json:"ticketType"`
+	RealPriceCents int64           `json:"realPriceCents"`
 	CoachNo        string          `json:"coachNo"`
 	SeatNo         string          `json:"seatNo"`
 	PassengerName  string          `json:"passengerName"`
@@ -40,10 +42,14 @@ type ChangeTicketRequest struct {
 }
 
 type ChangeTicketResponse struct {
-	ChangeNo       string         `json:"changeNo"`
-	PriceDiffCents int64          `json:"priceDiffCents"`
-	OldTicket      TicketResponse `json:"oldTicket"`
-	NewTicket      TicketResponse `json:"newTicket"`
+	ChangeNo        string         `json:"changeNo"`
+	PriceDiffCents  int64          `json:"priceDiffCents"`
+	FeeCents        int64          `json:"feeCents"`
+	SettlementCents int64          `json:"settlementCents"`
+	PaymentNo       string         `json:"paymentNo,omitempty"`
+	RefundNo        string         `json:"refundNo,omitempty"`
+	OldTicket       TicketResponse `json:"oldTicket"`
+	NewTicket       TicketResponse `json:"newTicket"`
 }
 
 type ChangeOptionsQuery struct {

@@ -33,6 +33,7 @@ export interface TrainSearchItem {
   departTime: string
   arriveTime: string
   durationMinutes: number
+  viaStations?: Station[]
   seatOptions: SeatOption[]
 }
 
@@ -183,6 +184,8 @@ export interface Ticket {
   arriveTime?: string
   seatClassCode: string
   seatClassName: string
+  ticketType: TicketType
+  realPriceCents: number
   coachNo: string
   seatNo: string
   passengerName: string
@@ -212,6 +215,10 @@ export interface ChangeOptionsResult {
 export interface ChangeResult {
   changeNo: string
   priceDiffCents: number
+  feeCents: number
+  settlementCents: number
+  paymentNo?: string
+  refundNo?: string
   oldTicket: Ticket
   newTicket: Ticket
 }

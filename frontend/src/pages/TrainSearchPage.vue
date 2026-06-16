@@ -26,6 +26,7 @@ const onlyHighSpeed = ref(false)
 const sortMode = ref<'depart' | 'duration' | 'price'>('depart')
 const sortDirection = ref<'asc' | 'desc'>('asc')
 let searchTimer: ReturnType<typeof setTimeout> | null = null
+const today = formatLocalDate(new Date())
 
 function formatLocalDate(date: Date) {
   const year = date.getFullYear()
@@ -186,6 +187,13 @@ function seatAvailabilityClass(seat: SeatOption) {
   return 'text-emerald-600'
 }
 
+function viaStationText(train: TrainSearchItem) {
+  if (!train.viaStations?.length) return '直达'
+  const names = train.viaStations.map((station) => station.name)
+  if (names.length <= 3) return `途经 ${names.join(' / ')}`
+  return `途经 ${names.slice(0, 3).join(' / ')} 等${names.length}站`
+}
+
 function trainType(trainNo: string) {
   if (trainNo.startsWith('G')) return 'G 高铁'
   if (trainNo.startsWith('D')) return 'D 动车'
@@ -228,7 +236,7 @@ function sortLabel() {
 
           <label class="block">
             <span class="form-label">出发日期</span>
-            <input v-model="query.date" class="form-input mt-2 h-14 text-lg" type="date" required />
+            <input v-model="query.date" class="form-input mt-2 h-14 text-lg" type="date" :min="today" required />
           </label>
 
           <button class="btn-primary h-14 px-10 text-lg" type="submit" :disabled="loading || !canSearch">
@@ -311,6 +319,7 @@ function sortLabel() {
             <div class="self-center">
               <div class="inline-flex rounded-lg bg-slate-100 px-5 py-3 text-2xl font-black text-slate-700">{{ train.trainNo }}</div>
               <div class="mt-2 text-center text-sm font-bold text-slate-400">{{ trainType(train.trainNo) }}</div>
+              <div class="mt-2 text-center text-xs font-bold text-emerald-600">{{ viaStationText(train) }}</div>
             </div>
 
             <div class="grid gap-3 sm:grid-cols-3">

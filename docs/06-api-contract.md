@@ -440,6 +440,8 @@ Change response data:
 {
   "changeNo": "C20260523154500123456",
   "priceDiffCents": 38000,
+  "feeCents": 500,
+  "settlementCents": 38500,
   "oldTicket": {"id": 1, "status": "CHANGED_OUT"},
   "newTicket": {"id": 2, "ticketNo": "T20260523154500123456", "status": "ISSUED"}
 }
@@ -548,3 +550,15 @@ Supported inventory flow actions:
 - `CHANGE_IN`: new ticket in change flow, `available_count -> sold_count`
 
 Inventory flow response returns the updated inventory item and `lowestPriceCents` for the train.
+
+Additional current search behavior notes:
+
+- Train search items may include `viaStations` with ordered intermediate stops between `fromStation` and `toStation`.
+- Past travel dates return `VALIDATION_ERROR`.
+- Same-day trains whose departure time has already passed are filtered out from search and change options.
+
+Additional current change behavior notes:
+
+- `Ticket` responses now include `ticketType` and `realPriceCents`.
+- `POST /tickets/{ticketId}/change` may also return `paymentNo` when the user needs to pay extra, or `refundNo` when the user should receive a refund.
+- Change supports different seat classes on the same route, but ticket-type restrictions still apply.

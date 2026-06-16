@@ -142,10 +142,14 @@
 - The current code treats `PAID` as "paid and ticket issued" for the first runnable vertical slice. Later slices may split this into `PAID -> TICKETED` if asynchronous ticketing is needed.
 - The ticket slice now supports transactional refund and change operations.
 - `POST /tickets/{ticketId}/refund` only accepts `ISSUED` tickets before departure. It marks the ticket `REFUNDED`, releases one sold inventory back to available inventory, creates a successful mock refund record, and closes the related order in one database transaction.
-- `POST /tickets/{ticketId}/change` only accepts `ISSUED` tickets before departure. It marks the old ticket `CHANGED_OUT`, releases old sold inventory, consumes new available inventory, creates a new `ISSUED` ticket, updates the related order snapshot, and writes a successful change record with `price_diff_cents` in one database transaction.
-- Refund fees and real difference-payment collection are not enabled in this coursework slice; difference amounts are recorded for display/audit as simulated change settlement.
+- `POST /tickets/{ticketId}/change` only accepts `ISSUED` tickets before departure. It marks the old ticket `CHANGED_OUT`, releases old sold inventory, consumes new available inventory, creates a new `ISSUED` ticket, updates the related order snapshot, and writes a successful change record with `price_diff_cents` and `fee_cents` in one database transaction.
+- Ticket search and order creation reject past travel dates. For same-day travel, trains whose actual departure time has passed are filtered out and cannot be bought.
+- Train search and change-option responses now include ordered `viaStations` so the frontend can display intermediate route stops.
+- Change settlement now supports configurable `change_fee_percent`; the simulated final settlement is `priceDiffCents + feeCents`.
 - User roles now include `PASSENGER`, `CLERK`, and `ADMIN`.
 - `CLERK` users can create ticket orders for walk-up passengers through the backend service layer. The clerk flow must still verify passenger identity, lock inventory, use an idempotency key, and leave payment/order state transitions to the existing order service.
-- Administrators can maintain system parameters through `SystemSetting`. The current implemented settings are `order_pay_expire_minutes`, `refund_cutoff_minutes`, `change_cutoff_minutes`, `refund_fee_percent`, and `mock_payment_enabled`.
+- Administrators can maintain system parameters through `SystemSetting`. The current implemented settings are `order_pay_expire_minutes`, `refund_cutoff_minutes`, `change_cutoff_minutes`, `refund_fee_percent`, `change_fee_percent`, and `mock_payment_enabled`.
 - Train and fare data now supports `G` / `C` / `D` / `Z` / `T` / `K` train types with type-specific seat classes. Admin inventory save validates the seat class against the train type and can calculate `price_cents` from route mileage when the request sends `priceCents: 0`.
 - The passenger web flow now supports search -> confirm order -> payment. `POST /orders` accepts multiple passenger items, writes `order_items`, locks one inventory item per passenger, and `POST /orders/{orderId}/payments` creates one ticket per order item.
+- Change now supports cross-seat-class changes within the same route, but ticket-type restrictions still apply. Student tickets cannot change into non-second-class seats.
+- When change settlement is positive, the backend creates an extra mock payment record; when it is negative, the backend creates a mock refund record for the settlement difference.

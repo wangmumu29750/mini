@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -55,6 +54,9 @@ func (s *TicketService) ChangeOptions(userID, ticketID uint64, query dto.ChangeO
 	if err != nil {
 		return dto.ChangeOptionsResponse{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "改签日期格式不正确")
 	}
+	if err := validateTicketTravelDate(date); err != nil {
+		return dto.ChangeOptionsResponse{}, err
+	}
 
 	ticket, err := s.tickets.FindByUserAndID(userID, ticketID)
 	if err != nil {
@@ -71,18 +73,23 @@ func (s *TicketService) ChangeOptions(userID, ticketID uint64, query dto.ChangeO
 	}
 
 	var rows []repository.TrainSearchRow
+	var options []dto.TrainSearchItemResponse
 	err = s.tickets.Transaction(func(tx *gorm.DB) error {
 		var loadErr error
 		rows, loadErr = repository.SearchAvailableTrains(tx, date, ticket.FromStationID, ticket.ToStationID)
+		if loadErr != nil {
+			return loadErr
+		}
+		options, loadErr = buildTrainSearchResponses(tx, date, rows)
 		return loadErr
 	})
 	if err != nil {
 		return dto.ChangeOptionsResponse{}, err
 	}
 
-	options := trainSearchRowsToResponses(date, rows)
 	filtered := make([]dto.TrainSearchItemResponse, 0, len(options))
 	now := time.Now()
+	calculator := newTicketPriceCalculator()
 	for _, option := range options {
 		departTime, err := time.Parse(time.RFC3339, option.DepartTime)
 		if err != nil {
@@ -95,6 +102,9 @@ func (s *TicketService) ChangeOptions(userID, ticketID uint64, query dto.ChangeO
 		seatOptions := option.SeatOptions[:0]
 		for _, seat := range option.SeatOptions {
 			if option.TrainID == ticket.TrainID && option.TravelDate == ticket.TravelDate.Format("2006-01-02") && seat.SeatClassCode == ticket.SeatClassCode {
+				continue
+			}
+			if _, err := calculator.Calculate(seat.PriceCents, option.TrainType, seat.SeatClassCode, string(ticket.TicketType)); err != nil {
 				continue
 			}
 			if seat.AvailableCount > 0 {
@@ -233,6 +243,9 @@ func (s *TicketService) Change(userID, ticketID uint64, req dto.ChangeTicketRequ
 	if err != nil {
 		return dto.ChangeTicketResponse{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "改签日期格式不正确")
 	}
+	if err := validateTicketTravelDate(newDate); err != nil {
+		return dto.ChangeTicketResponse{}, err
+	}
 	key := strings.TrimSpace(req.IdempotencyKey)
 	if key == "" {
 		key = fmt.Sprintf("change-auto-%d-%d", userID, time.Now().UnixNano())
@@ -241,6 +254,8 @@ func (s *TicketService) Change(userID, ticketID uint64, req dto.ChangeTicketRequ
 	var record model.ChangeRecord
 	var oldTicket model.Ticket
 	var newTicket model.Ticket
+	var paymentNo string
+	var refundNo string
 	err = s.tickets.Transaction(func(tx *gorm.DB) error {
 		var existing model.ChangeRecord
 		err := tx.Where("user_id = ? AND idempotency_key = ?", userID, key).First(&existing).Error
@@ -249,7 +264,22 @@ func (s *TicketService) Change(userID, ticketID uint64, req dto.ChangeTicketRequ
 			if err := tx.Where("id = ? AND user_id = ?", existing.OldTicketID, userID).First(&oldTicket).Error; err != nil {
 				return err
 			}
-			return tx.Where("id = ? AND user_id = ?", existing.NewTicketID, userID).First(&newTicket).Error
+			if err := tx.Where("id = ? AND user_id = ?", existing.NewTicketID, userID).First(&newTicket).Error; err != nil {
+				return err
+			}
+			if existing.PriceDiffCents+existing.FeeCents > 0 {
+				var payment model.Payment
+				if err := tx.Where("order_id = ? AND user_id = ? AND amount_cents = ? AND channel = ?", oldTicket.OrderID, userID, existing.PriceDiffCents+existing.FeeCents, "MOCK_CHANGE").Order("id DESC").First(&payment).Error; err == nil {
+					paymentNo = payment.PaymentNo
+				}
+			}
+			if existing.PriceDiffCents+existing.FeeCents < 0 {
+				var refund model.Refund
+				if err := tx.Where("ticket_id = ? AND user_id = ? AND amount_cents = ? AND status = ?", existing.NewTicketID, userID, -(existing.PriceDiffCents + existing.FeeCents), model.RefundStatusSuccess).Order("id DESC").First(&refund).Error; err == nil {
+					refundNo = refund.RefundNo
+				}
+			}
+			return nil
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
@@ -294,6 +324,18 @@ func (s *TicketService) Change(userID, ticketID uint64, req dto.ChangeTicketRequ
 		if newRow.AvailableCount <= 0 {
 			return apperrors.New(http.StatusConflict, response.CodeInsufficientInventory, "改签车次余票不足")
 		}
+		if err := validateFutureDeparture(newRow.TravelDate, newRow.DepartClock, newRow.DepartDayOffset); err != nil {
+			return err
+		}
+
+		calculator := newTicketPriceCalculator()
+		newRealPrice, err := calculator.Calculate(newRow.PriceCents, newRow.TrainType, req.NewSeatClassCode, string(ticket.TicketType))
+		if err != nil {
+			return err
+		}
+		feeCents := percentageFee(ticket.RealPriceCents, systemSettingInt(tx, "change_fee_percent", 0))
+		priceDiffCents := newRealPrice - ticket.RealPriceCents
+		settlementCents := priceDiffCents + feeCents
 
 		if err := tx.Model(&model.Inventory{}).
 			Where("id = ? AND sold_count > 0", oldRow.InventoryID).
@@ -330,6 +372,8 @@ func (s *TicketService) Change(userID, ticketID uint64, req dto.ChangeTicketRequ
 			ToStationName:   newRow.ToStationName,
 			SeatClassCode:   newRow.SeatClassCode,
 			SeatClassName:   seatClassName(newRow.SeatClassCode),
+			TicketType:      ticket.TicketType,
+			RealPriceCents:  newRealPrice,
 			CoachNo:         makeCoachNo(newRow.SoldCount + 1),
 			SeatNo:          makeSeatNo(newRow.SoldCount + 1),
 			PassengerName:   ticket.PassengerName,
@@ -346,13 +390,61 @@ func (s *TicketService) Change(userID, ticketID uint64, req dto.ChangeTicketRequ
 			OldTicketID:    ticket.ID,
 			NewTicketID:    newTicket.ID,
 			UserID:         userID,
-			PriceDiffCents: newRow.PriceCents - oldRow.PriceCents,
+			PriceDiffCents: priceDiffCents,
+			FeeCents:       feeCents,
 			Status:         model.ChangeStatusSuccess,
 			IdempotencyKey: key,
 			ChangedAt:      now,
 		}
 		if err := tx.Create(&record).Error; err != nil {
 			return err
+		}
+		if err := tx.Model(&model.OrderItem{}).
+			Where("order_id = ? AND ticket_id = ?", ticket.OrderID, ticket.ID).
+			Updates(map[string]any{
+				"seat_type":        newTicket.SeatClassCode,
+				"base_price_cents": newRow.PriceCents,
+				"real_price_cents": newRealPrice,
+				"ticket_id":        newTicket.ID,
+				"ticket_no":        newTicket.TicketNo,
+			}).Error; err != nil {
+			return err
+		}
+		if settlementCents > 0 {
+			payment := model.Payment{
+				PaymentNo:   makeBizNo("P"),
+				OrderID:     ticket.OrderID,
+				UserID:      userID,
+				AmountCents: settlementCents,
+				Channel:     "MOCK_CHANGE",
+				Status:      model.PaymentStatusSuccess,
+				PaidAt:      now,
+			}
+			if err := tx.Create(&payment).Error; err != nil {
+				return err
+			}
+			paymentNo = payment.PaymentNo
+		}
+		if settlementCents < 0 {
+			var payment model.Payment
+			if err := tx.Where("order_id = ? AND status = ?", ticket.OrderID, model.PaymentStatusSuccess).Order("id DESC").First(&payment).Error; err != nil {
+				return err
+			}
+			refund := model.Refund{
+				RefundNo:       makeBizNo("R"),
+				TicketID:       newTicket.ID,
+				PaymentID:      payment.ID,
+				UserID:         userID,
+				AmountCents:    -settlementCents,
+				Status:         model.RefundStatusSuccess,
+				Reason:         "change settlement refund",
+				IdempotencyKey: key + "-refund",
+				RefundedAt:     now,
+			}
+			if err := tx.Create(&refund).Error; err != nil {
+				return err
+			}
+			refundNo = refund.RefundNo
 		}
 		if err := tx.Model(&model.Order{}).
 			Where("id = ? AND user_id = ?", ticket.OrderID, userID).
@@ -366,7 +458,7 @@ func (s *TicketService) Change(userID, ticketID uint64, req dto.ChangeTicketRequ
 				"to_station_name":   newTicket.ToStationName,
 				"seat_class_code":   newTicket.SeatClassCode,
 				"seat_class_name":   newTicket.SeatClassName,
-				"amount_cents":      newRow.PriceCents,
+				"amount_cents":      gorm.Expr("amount_cents + ?", settlementCents),
 				"status":            model.OrderStatusPaid,
 			}).Error; err != nil {
 			return err
@@ -381,62 +473,15 @@ func (s *TicketService) Change(userID, ticketID uint64, req dto.ChangeTicketRequ
 	}
 
 	return dto.ChangeTicketResponse{
-		ChangeNo:       record.ChangeNo,
-		PriceDiffCents: record.PriceDiffCents,
-		OldTicket:      ticketResponse(oldTicket),
-		NewTicket:      ticketResponse(newTicket),
+		ChangeNo:        record.ChangeNo,
+		PriceDiffCents:  record.PriceDiffCents,
+		FeeCents:        record.FeeCents,
+		SettlementCents: record.PriceDiffCents + record.FeeCents,
+		PaymentNo:       paymentNo,
+		RefundNo:        refundNo,
+		OldTicket:       ticketResponse(oldTicket),
+		NewTicket:       ticketResponse(newTicket),
 	}, nil
-}
-
-func trainSearchRowsToResponses(date time.Time, rows []repository.TrainSearchRow) []dto.TrainSearchItemResponse {
-	itemsByTrain := make(map[uint64]*dto.TrainSearchItemResponse)
-	for _, row := range rows {
-		item, ok := itemsByTrain[row.TrainID]
-		if !ok {
-			departTime := combineDateClock(date, row.DepartClock, row.DepartDayOffset)
-			arriveTime := combineDateClock(date, row.ArriveClock, row.ArriveDayOffset)
-			duration := int(arriveTime.Sub(departTime).Minutes())
-			if duration < 0 {
-				duration = 0
-			}
-
-			item = &dto.TrainSearchItemResponse{
-				TrainID:    row.TrainID,
-				TrainNo:    row.TrainNo,
-				TrainType:  row.TrainType,
-				TravelDate: date.Format("2006-01-02"),
-				FromStation: dto.StationResponse{
-					ID:   row.FromStationID,
-					Name: row.FromStationName,
-				},
-				ToStation: dto.StationResponse{
-					ID:   row.ToStationID,
-					Name: row.ToStationName,
-				},
-				DepartTime:      departTime.Format(time.RFC3339),
-				ArriveTime:      arriveTime.Format(time.RFC3339),
-				DurationMinutes: duration,
-				SeatOptions:     []dto.SeatOptionResponse{},
-			}
-			itemsByTrain[row.TrainID] = item
-		}
-
-		item.SeatOptions = append(item.SeatOptions, dto.SeatOptionResponse{
-			SeatClassCode:  row.SeatClassCode,
-			SeatClassName:  seatClassName(row.SeatClassCode),
-			PriceCents:     row.PriceCents,
-			AvailableCount: row.AvailableCount,
-		})
-	}
-
-	result := make([]dto.TrainSearchItemResponse, 0, len(itemsByTrain))
-	for _, item := range itemsByTrain {
-		result = append(result, *item)
-	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].DepartTime < result[j].DepartTime
-	})
-	return result
 }
 
 func ticketResponse(ticket model.Ticket) dto.TicketResponse {
@@ -457,6 +502,8 @@ func ticketResponse(ticket model.Ticket) dto.TicketResponse {
 		ToStation:      dto.StationResponse{ID: ticket.ToStationID, Name: ticket.ToStationName},
 		SeatClassCode:  ticket.SeatClassCode,
 		SeatClassName:  ticket.SeatClassName,
+		TicketType:     string(ticket.TicketType),
+		RealPriceCents: ticket.RealPriceCents,
 		CoachNo:        ticket.CoachNo,
 		SeatNo:         ticket.SeatNo,
 		PassengerName:  ticket.PassengerName,

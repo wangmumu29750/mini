@@ -48,6 +48,7 @@ function labelOf(key: string) {
     refund_cutoff_minutes: '退票截止分钟数',
     change_cutoff_minutes: '改签截止分钟数',
     refund_fee_percent: '退票手续费比例',
+    change_fee_percent: '改签手续费比例',
     mock_payment_enabled: '模拟支付开关',
   }
   return labels[key] || key

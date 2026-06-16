@@ -72,6 +72,9 @@ func (s *OrderService) create(userID uint64, req dto.CreateOrderRequest, walkUpP
 	if err != nil {
 		return dto.OrderResponse{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "乘车日期格式不正确")
 	}
+	if err := validateTicketTravelDate(travelDate); err != nil {
+		return dto.OrderResponse{}, err
+	}
 
 	key := strings.TrimSpace(req.IdempotencyKey)
 	if key == "" {
@@ -118,6 +121,9 @@ func (s *OrderService) create(userID uint64, req dto.CreateOrderRequest, walkUpP
 			}
 			if row.AvailableCount <= 0 {
 				return apperrors.New(http.StatusConflict, response.CodeInsufficientInventory, "余票不足")
+			}
+			if err := validateFutureDeparture(row.TravelDate, row.DepartClock, row.DepartDayOffset); err != nil {
+				return err
 			}
 
 			result := tx.Model(&model.Inventory{}).

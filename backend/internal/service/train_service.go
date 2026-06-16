@@ -8,6 +8,8 @@ import (
 	"mini-12306/backend/internal/repository"
 	apperrors "mini-12306/backend/pkg/errors"
 	"mini-12306/backend/pkg/response"
+
+	"gorm.io/gorm"
 )
 
 type TrainService struct {
@@ -43,11 +45,37 @@ func (s *TrainService) Search(query dto.TrainSearchQuery) ([]dto.TrainSearchItem
 	if err != nil {
 		return nil, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "乘车日期格式不正确")
 	}
+	if err := validateTicketTravelDate(date); err != nil {
+		return nil, err
+	}
 
-	rows, err := s.trains.SearchAvailableTrains(date, query.FromStationID, query.ToStationID)
+	result := make([]dto.TrainSearchItemResponse, 0)
+	err = s.trains.Transaction(func(tx *gorm.DB) error {
+		rows, err := repository.SearchAvailableTrains(tx, date, query.FromStationID, query.ToStationID)
+		if err != nil {
+			return err
+		}
+
+		items, err := buildTrainSearchResponses(tx, date, rows)
+		if err != nil {
+			return err
+		}
+
+		now := time.Now()
+		for _, item := range items {
+			departTime, err := time.Parse(time.RFC3339, item.DepartTime)
+			if err != nil {
+				return err
+			}
+			if departTime.After(now) {
+				result = append(result, item)
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	return trainSearchRowsToResponses(date, rows), nil
+	return result, nil
 }

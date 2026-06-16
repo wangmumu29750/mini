@@ -23,6 +23,7 @@ var defaultSystemSettings = []model.SystemSetting{
 	{Key: "refund_cutoff_minutes", Value: "30", ValueType: "INT", Description: "Minutes before departure after which refund is blocked"},
 	{Key: "change_cutoff_minutes", Value: "30", ValueType: "INT", Description: "Minutes before departure after which change is blocked"},
 	{Key: "refund_fee_percent", Value: "0", ValueType: "INT", Description: "Refund fee percentage for mock settlement"},
+	{Key: "change_fee_percent", Value: "0", ValueType: "INT", Description: "Change fee percentage based on the original paid ticket amount"},
 	{Key: "mock_payment_enabled", Value: "true", ValueType: "BOOL", Description: "Whether local mock payment is enabled"},
 }
 

@@ -36,27 +36,54 @@ func newTicketPriceCalculator() *ticketPriceCalculator {
 	}
 }
 
-func CalculateTicketPrice(basePriceCents int64, trainType, seatType, ticketType string) (int64, error) {
-	return newTicketPriceCalculator().Calculate(basePriceCents, trainType, seatType, ticketType)
+func CalculateTicketPrice(basePriceCents int64, args ...string) (int64, error) {
+	return newTicketPriceCalculator().Calculate(basePriceCents, args...)
 }
 
-func (c *ticketPriceCalculator) Calculate(basePriceCents int64, trainType, seatType, ticketType string) (int64, error) {
+func (c *ticketPriceCalculator) Calculate(basePriceCents int64, args ...string) (int64, error) {
+	trainType, seatType, ticketType, legacyMode, err := parseTicketPriceArgs(args)
+	if err != nil {
+		return 0, err
+	}
+
 	trainType = strings.ToUpper(strings.TrimSpace(trainType))
 	seatType = strings.ToUpper(strings.TrimSpace(seatType))
 	ticketType = strings.ToUpper(strings.TrimSpace(ticketType))
-	if trainType == "" || seatType == "" || ticketType == "" {
-		return 0, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "甯埆銆佽溅绫诲拰绁ㄧ涓嶈兘涓虹┖")
+	if seatType == "" || ticketType == "" || (!legacyMode && trainType == "") {
+		return 0, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "ticket price arguments are required")
 	}
+
 	rule, ok := c.rules[ticketType]
 	if !ok {
-		return 0, apperrors.New(http.StatusBadRequest, response.CodeValidationError, fmt.Sprintf("涓嶆敮鎸佺殑绁ㄧ: %s", ticketType))
+		return 0, apperrors.New(http.StatusBadRequest, response.CodeValidationError, fmt.Sprintf("unsupported ticket type: %s", ticketType))
 	}
+
+	if legacyMode {
+		if ticketType == string(model.TicketTypeStudent) && seatType != "SECOND" {
+			return 0, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "student ticket only supports second class in legacy pricing mode")
+		}
+		if trainType == "" {
+			trainType = "G"
+		}
+	}
+
 	return rule.Apply(TicketPriceContext{
 		BasePriceCents: basePriceCents,
 		TrainType:      trainType,
 		SeatType:       seatType,
 		TicketType:     ticketType,
 	})
+}
+
+func parseTicketPriceArgs(args []string) (trainType, seatType, ticketType string, legacyMode bool, err error) {
+	switch len(args) {
+	case 3:
+		return args[0], args[1], args[2], false, nil
+	case 2:
+		return "", args[0], args[1], true, nil
+	default:
+		return "", "", "", false, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "invalid ticket price arguments")
+	}
 }
 
 type adultTicketRule struct{}
@@ -68,6 +95,9 @@ func (adultTicketRule) Apply(ctx TicketPriceContext) (int64, error) {
 type studentTicketRule struct{}
 
 func (studentTicketRule) Apply(ctx TicketPriceContext) (int64, error) {
+	if strings.ToUpper(strings.TrimSpace(ctx.SeatType)) != "SECOND" {
+		return 0, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "student ticket only supports second class")
+	}
 	switch ctx.TrainType {
 	case "Z", "T", "K":
 		return roundedPrice(ctx.BasePriceCents, 0.60), nil
@@ -88,5 +118,5 @@ func roundedPrice(base int64, factor float64) int64 {
 	if base <= 0 {
 		return 0
 	}
-	return int64(math.Round(float64(base) * factor))
+	return int64(math.RoundToEven(float64(base) * factor))
 }

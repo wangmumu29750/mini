@@ -21,6 +21,7 @@ const qrTicketId = ref<number | null>(null)
 const errorMessage = ref('')
 const successMessage = ref('')
 const statusFilter = ref('ALL')
+const today = new Date().toISOString().slice(0, 10)
 
 const changeForm = reactive({
   date: '',
@@ -51,6 +52,24 @@ const qrVerifyPayload = computed(() => {
 })
 const selectedChangeTrain = computed(() => changeOptions.value.find((train) => String(train.trainId) === changeForm.trainId) || null)
 const selectedSeat = computed(() => selectedChangeTrain.value?.seatOptions.find((seat) => seat.seatClassCode === changeForm.seatClassCode) || null)
+const selectedSettlementPreview = computed(() => {
+  const ticket = selectedTicket.value
+  const train = selectedChangeTrain.value
+  const seat = selectedSeat.value
+  if (!ticket || !train || !seat) return null
+
+  let nextPrice = seat.priceCents
+  if (ticket.ticketType === 'CHILD') {
+    nextPrice = Math.round(seat.priceCents * 0.5)
+  } else if (ticket.ticketType === 'STUDENT') {
+    nextPrice = ['Z', 'T', 'K'].includes(train.trainType) ? Math.round(seat.priceCents * 0.6) : Math.round(seat.priceCents * 0.75)
+  }
+
+  return {
+    nextPrice,
+    priceDiffCents: nextPrice - ticket.realPriceCents,
+  }
+})
 const filteredTickets = computed(() => {
   if (statusFilter.value === 'ALL') {
     return tickets.value
@@ -88,7 +107,7 @@ async function loadTickets() {
 }
 
 async function handleRefund(ticket: Ticket) {
-  if (!window.confirm(`确认退票 ${ticket.trainNo} ${ticket.fromStation.name} 到 ${ticket.toStation.name}？`)) {
+  if (!window.confirm(`确认退票：${ticket.trainNo} ${ticket.fromStation.name} -> ${ticket.toStation.name}？`)) {
     return
   }
 
@@ -150,7 +169,8 @@ async function loadChangeOptions(ticket = selectedTicket.value) {
 async function handleChange() {
   const ticket = selectedTicket.value
   const train = selectedChangeTrain.value
-  if (!ticket || !train || !selectedSeat.value) {
+  const seat = selectedSeat.value
+  if (!ticket || !train || !seat) {
     return
   }
 
@@ -162,13 +182,27 @@ async function handleChange() {
     const result = await changeTicket(ticket.id, {
       newTrainId: train.trainId,
       newTravelDate: train.travelDate,
-      newSeatClassCode: selectedSeat.value.seatClassCode,
+      newSeatClassCode: seat.seatClassCode,
       idempotencyKey: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     })
     tickets.value = tickets.value.map((item) => (item.id === ticket.id ? result.oldTicket : item))
     tickets.value.unshift(result.newTicket)
     await notificationStore.refresh()
-    successMessage.value = `改签成功，流水号：${result.changeNo}，差价 ${formatMoney(result.priceDiffCents)}`
+
+    let settlementText = '无需补退差价'
+    if (result.settlementCents > 0) {
+      settlementText = `已补款 ${formatMoney(result.settlementCents)}`
+      if (result.paymentNo) {
+        settlementText += `，补款流水号：${result.paymentNo}`
+      }
+    } else if (result.settlementCents < 0) {
+      settlementText = `已退款 ${formatMoney(Math.abs(result.settlementCents))}`
+      if (result.refundNo) {
+        settlementText += `，退款流水号：${result.refundNo}`
+      }
+    }
+
+    successMessage.value = `改签成功，流水号：${result.changeNo}，票价差 ${formatMoney(result.priceDiffCents)}，手续费 ${formatMoney(result.feeCents)}，${settlementText}`
     closeChange()
   } catch (error) {
     errorMessage.value = (error as ApiErrorPayload).message
@@ -188,11 +222,17 @@ function closeQr() {
 
 function statusText(status: string) {
   const textMap: Record<string, string> = {
-    ISSUED: '票价支付已结',
+    ISSUED: '可使用',
     REFUNDED: '已退票',
     CHANGED_OUT: '已改签',
   }
   return textMap[status] || status
+}
+
+function ticketTypeText(ticketType: string) {
+  if (ticketType === 'STUDENT') return '学生票'
+  if (ticketType === 'CHILD') return '儿童票'
+  return '成人票'
 }
 
 function canOperate(ticket: Ticket) {
@@ -202,7 +242,7 @@ function canOperate(ticket: Ticket) {
 
 <template>
   <main>
-    <PageHeader title="全防伪电子乘车证" description="检票时请直接出示对应的电子验票二维码。中途站可凭身份证原件和行程单验证进站上车。" />
+    <PageHeader title="我的车票" description="查看已出票车票，支持退票、改签和电子验票展示。" />
 
     <section class="mx-auto max-w-7xl px-4 py-6 sm:px-8">
       <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -234,7 +274,7 @@ function canOperate(ticket: Ticket) {
           <div class="bg-emerald-50/60 p-6">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div class="flex items-center gap-3">
-                <span class="text-2xl text-emerald-600">▣</span>
+                <span class="text-2xl text-emerald-600">◆</span>
                 <span class="text-lg font-black text-slate-800">{{ ticket.trainNo }}</span>
                 <span class="rounded-md bg-emerald-50 px-2 py-1 text-xs font-black text-emerald-600">中国铁路</span>
               </div>
@@ -266,13 +306,14 @@ function canOperate(ticket: Ticket) {
 
             <div class="grid gap-5 sm:grid-cols-[1fr_auto]">
               <div class="flex items-center gap-4">
-                <div class="flex h-14 w-14 items-center justify-center rounded-full border border-slate-300 text-2xl text-slate-500">♙</div>
+                <div class="flex h-14 w-14 items-center justify-center rounded-full border border-slate-300 text-2xl text-slate-500">★</div>
                 <div>
                   <div class="text-xl font-black text-slate-900">
                     {{ ticket.passengerName }}
-                    <span class="ml-2 rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-500">成人</span>
+                    <span class="ml-2 rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-500">{{ ticketTypeText(ticket.ticketType) }}</span>
                   </div>
                   <div class="mt-2 text-sm font-bold text-slate-400">ID: {{ ticket.idCardNoMasked }}</div>
+                  <div class="mt-1 text-sm font-bold text-slate-400">票价: {{ formatMoney(ticket.realPriceCents) }}</div>
                 </div>
               </div>
 
@@ -312,9 +353,9 @@ function canOperate(ticket: Ticket) {
       <div class="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
         <div class="flex items-start justify-between gap-4">
           <div>
-            <h2 class="text-2xl font-black text-slate-950">验签二维码</h2>
+            <h2 class="text-2xl font-black text-slate-950">验票二维码</h2>
             <p class="mt-1 text-sm font-medium text-slate-500">
-              {{ qrTicket.trainNo }} {{ qrTicket.fromStation.name }} → {{ qrTicket.toStation.name }}
+              {{ qrTicket.trainNo }} {{ qrTicket.fromStation.name }} -> {{ qrTicket.toStation.name }}
             </p>
           </div>
           <button class="rounded-lg px-3 py-2 text-slate-400 hover:bg-slate-100" type="button" @click="closeQr">关闭</button>
@@ -363,7 +404,7 @@ function canOperate(ticket: Ticket) {
           <div>
             <h2 class="text-2xl font-black text-slate-950">办理改签</h2>
             <p class="mt-1 text-sm font-medium text-slate-500">
-              原票 {{ selectedTicket.trainNo }} {{ selectedTicket.fromStation.name }} → {{ selectedTicket.toStation.name }}
+              原票 {{ selectedTicket.trainNo }} {{ selectedTicket.fromStation.name }} -> {{ selectedTicket.toStation.name }}
             </p>
           </div>
           <button class="rounded-lg px-3 py-2 text-slate-400 hover:bg-slate-100" type="button" @click="closeChange">关闭</button>
@@ -372,7 +413,7 @@ function canOperate(ticket: Ticket) {
         <div class="mt-5 grid gap-4 sm:grid-cols-[1fr_auto]">
           <label>
             <span class="form-label">新乘车日期</span>
-            <input v-model="changeForm.date" class="form-input mt-2 h-11" type="date" />
+            <input v-model="changeForm.date" class="form-input mt-2 h-11" type="date" :min="today" />
           </label>
           <button class="btn-secondary mt-7 h-11" type="button" :disabled="optionLoading" @click="loadChangeOptions()">
             {{ optionLoading ? '查询中...' : '查询可改签车次' }}
@@ -385,7 +426,7 @@ function canOperate(ticket: Ticket) {
             <select v-model="changeForm.trainId" class="form-input mt-2 h-11">
               <option value="">请选择</option>
               <option v-for="train in changeOptions" :key="`${train.trainId}-${train.travelDate}`" :value="String(train.trainId)">
-                {{ train.trainNo }} {{ formatTime(train.departTime) }} → {{ formatTime(train.arriveTime) }}
+                {{ train.trainNo }} {{ formatTime(train.departTime) }} -> {{ formatTime(train.arriveTime) }}
               </option>
             </select>
           </label>
@@ -395,19 +436,27 @@ function canOperate(ticket: Ticket) {
             <select v-model="changeForm.seatClassCode" class="form-input mt-2 h-11" :disabled="!selectedChangeTrain">
               <option value="">请选择</option>
               <option v-for="seat in selectedChangeTrain?.seatOptions || []" :key="seat.seatClassCode" :value="seat.seatClassCode" :disabled="seat.availableCount <= 0">
-                {{ seat.seatClassName }} / {{ formatMoney(seat.priceCents) }} / 余{{ seat.availableCount }}
+                {{ seat.seatClassName }} / {{ formatMoney(seat.priceCents) }} / 余 {{ seat.availableCount }}
               </option>
             </select>
           </label>
         </div>
 
         <div v-if="!optionLoading && !changeOptions.length" class="mt-5 rounded-lg bg-amber-50 p-4 text-sm font-bold text-amber-700">
-          褰撳墠鏃ユ湡娌℃湁鍙敼绛剧殑杞︽锛岃鏇存崲鏂颁箻杞︽棩鏈熷悗鍐嶆煡璇€?
+          当前日期下没有可改签的有效车次，或者符合票种规则的坐席已经售完。
         </div>
 
         <div v-if="selectedChangeTrain && selectedSeat" class="mt-5 rounded-lg bg-slate-50 p-4 text-sm font-bold text-slate-500">
-          新行程：{{ selectedChangeTrain.trainNo }} {{ selectedChangeTrain.fromStation.name }} {{ formatTime(selectedChangeTrain.departTime) }}
-          → {{ selectedChangeTrain.toStation.name }} {{ formatTime(selectedChangeTrain.arriveTime) }}，{{ selectedSeat.seatClassName }} {{ formatMoney(selectedSeat.priceCents) }}
+          <div>
+            新行程：{{ selectedChangeTrain.trainNo }} {{ selectedChangeTrain.fromStation.name }} {{ formatTime(selectedChangeTrain.departTime) }}
+            -> {{ selectedChangeTrain.toStation.name }} {{ formatTime(selectedChangeTrain.arriveTime) }}
+          </div>
+          <div class="mt-2">新席别：{{ selectedSeat.seatClassName }} / 票面价 {{ formatMoney(selectedSeat.priceCents) }}</div>
+          <div v-if="selectedSettlementPreview" class="mt-2 text-amber-700">
+            预计新票价 {{ formatMoney(selectedSettlementPreview.nextPrice) }}，
+            {{ selectedSettlementPreview.priceDiffCents > 0 ? `预计补差价 ${formatMoney(selectedSettlementPreview.priceDiffCents)}` : selectedSettlementPreview.priceDiffCents < 0 ? `预计退差价 ${formatMoney(Math.abs(selectedSettlementPreview.priceDiffCents))}` : '预计无票价差' }}。
+            实际手续费以下单结果为准。
+          </div>
         </div>
 
         <div class="mt-6 flex justify-end gap-3">

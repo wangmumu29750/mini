@@ -276,7 +276,7 @@
 
 - `users.role` now supports `PASSENGER`, `CLERK`, and `ADMIN`.
 - The `system_settings` table is implemented by the `SystemSetting` model with columns `key`, `value`, `value_type`, and `description`.
-- Default system settings are seeded lazily by the settings service: `order_pay_expire_minutes`, `refund_cutoff_minutes`, `change_cutoff_minutes`, `refund_fee_percent`, and `mock_payment_enabled`.
+- Default system settings are seeded lazily by the settings service: `order_pay_expire_minutes`, `refund_cutoff_minutes`, `change_cutoff_minutes`, `refund_fee_percent`, `change_fee_percent`, and `mock_payment_enabled`.
 - Clerk-created orders are stored in the same `orders` table and reuse the order/inventory transaction rules. The `user_id` is the clerk account that created the order, while passenger name and ID card snapshots are stored on the order/ticket records.
 - `tickets.ticket_no`
 - `payments.payment_no`
@@ -301,7 +301,8 @@ Current `payments` fields in code: `payment_no`, `order_id`, `user_id`, `amount_
 
 Current `refunds` fields in code: `refund_no`, `ticket_id`, `payment_id`, `user_id`, `amount_cents`, `status`, `reason`, `idempotency_key`, `refunded_at`.
 
-Current `change_records` fields in code: `change_no`, `old_ticket_id`, `new_ticket_id`, `user_id`, `price_diff_cents`, `status`, `idempotency_key`, `changed_at`.
+Current `change_records` fields in code: `change_no`, `old_ticket_id`, `new_ticket_id`, `user_id`, `price_diff_cents`, `fee_cents`, `status`, `idempotency_key`, `changed_at`.
+Change extra payments reuse the `payments` table, and change settlement refunds reuse the `refunds` table.
 
 Current admin maintenance notes:
 

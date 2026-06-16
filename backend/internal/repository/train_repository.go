@@ -32,6 +32,11 @@ type TrainSearchRow struct {
 	AvailableCount  int
 }
 
+type RouteStationRow struct {
+	ID   uint64
+	Name string
+}
+
 func NewTrainRepository(db *gorm.DB) *TrainRepository {
 	return &TrainRepository{db: db}
 }
@@ -44,6 +49,10 @@ func (r *TrainRepository) ListActiveStations() ([]model.Station, error) {
 
 func (r *TrainRepository) SearchAvailableTrains(date time.Time, fromStationID, toStationID uint64) ([]TrainSearchRow, error) {
 	return SearchAvailableTrains(r.db, date, fromStationID, toStationID)
+}
+
+func (r *TrainRepository) Transaction(fn func(tx *gorm.DB) error) error {
+	return r.db.Transaction(fn)
 }
 
 func SearchAvailableTrains(db *gorm.DB, date time.Time, fromStationID, toStationID uint64) ([]TrainSearchRow, error) {
@@ -76,6 +85,21 @@ func SearchAvailableTrains(db *gorm.DB, date time.Time, fromStationID, toStation
 		Where("DATE(i.travel_date) = ? AND i.from_station_id = ? AND i.to_station_id = ? AND i.status = ?", date.Format("2006-01-02"), fromStationID, toStationID, model.InventoryStatusActive).
 		Where("fstop.stop_order < tstop.stop_order").
 		Order("fstop.depart_clock ASC, t.train_no ASC, i.seat_class_code ASC").
+		Scan(&rows).Error
+	return rows, err
+}
+
+func ListRouteStations(db *gorm.DB, trainID uint64, fromOrder, toOrder int) ([]RouteStationRow, error) {
+	if fromOrder <= 0 || toOrder <= fromOrder+1 {
+		return []RouteStationRow{}, nil
+	}
+
+	var rows []RouteStationRow
+	err := db.Table("train_stops AS stop").
+		Select("s.id, s.name").
+		Joins("JOIN stations AS s ON s.id = stop.station_id AND s.status = ?", model.StationStatusActive).
+		Where("stop.train_id = ? AND stop.stop_order > ? AND stop.stop_order < ?", trainID, fromOrder, toOrder).
+		Order("stop.stop_order ASC").
 		Scan(&rows).Error
 	return rows, err
 }

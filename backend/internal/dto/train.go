@@ -22,6 +22,7 @@ type TrainSearchItemResponse struct {
 	DepartTime      string               `json:"departTime"`
 	ArriveTime      string               `json:"arriveTime"`
 	DurationMinutes int                  `json:"durationMinutes"`
+	ViaStations     []StationResponse    `json:"viaStations,omitempty"`
 	SeatOptions     []SeatOptionResponse `json:"seatOptions"`
 }
 
