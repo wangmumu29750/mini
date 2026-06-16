@@ -229,7 +229,7 @@ Implemented authenticated endpoints:
 | POST | `/orders/{orderId}/cancel` | Cancel pending-payment order and release locked inventory |
 | POST | `/orders/{orderId}/payments` | Mock payment and ticket issuing |
 | GET | `/auth/passengers` | List current user's verified passenger profiles for order confirmation |
-| POST | `/auth/passengers` | Create a verified accompanying passenger profile for buying tickets for another traveler |
+| POST | `/auth/passengers` | Link an existing verified passenger profile to the current account, or create a verified accompanying passenger profile when no existing match is found |
 
 Create order request:
 
@@ -250,6 +250,8 @@ Current create-order conflict behavior notes:
 
 - `POST /orders` returns `409 CONFLICT` when the same passenger already has an active order for the same `trainId + travelDate`.
 - The duplicate check also rejects selecting the same passenger twice inside one order request.
+- `POST /auth/passengers` now links an already verified real-name passenger to the current account when the ID card already exists, instead of failing on duplicate identity data.
+- When linking an existing verified passenger through `POST /auth/passengers`, the submitted `passengerType` is stored on the current-account association and drives adult/student/child ticket options in order confirmation.
 
 Create passenger request:
 
@@ -259,6 +261,14 @@ Create passenger request:
   "idCardNo": "110101200001011234",
   "phone": "13900139000",
   "bankCardNo": "6222020202020202021",
+  "passengerType": "ADULT"
+}
+```
+
+Register request now also accepts:
+
+```json
+{
   "passengerType": "ADULT"
 }
 ```
@@ -417,6 +427,8 @@ Refund response data:
 ```json
 {
   "refundNo": "R20260523154000123456",
+  "refundAmountCents": 54747,
+  "feeCents": 553,
   "ticket": {
     "id": 1,
     "ticketNo": "T20260523153100123456",
@@ -425,6 +437,11 @@ Refund response data:
   }
 }
 ```
+
+Current refund behavior notes:
+
+- `POST /tickets/{ticketId}/refund` calculates the refund fee from system setting `refund_fee_percent`.
+- The actual refund amount is based on the refunded ticket's `realPriceCents`, not the whole order payment amount.
 
 Change options query:
 
@@ -596,3 +613,4 @@ Additional current change behavior notes:
 - `Ticket` responses now include `ticketType` and `realPriceCents`.
 - `POST /tickets/{ticketId}/change` may also return `paymentNo` when the user needs to pay extra, or `refundNo` when the user should receive a refund.
 - Change supports different seat classes on the same route, but ticket-type restrictions still apply.
+- `GET /tickets` returns tickets owned by the logged-in passenger account. If user A buys a ticket for user B through an associated passenger profile, the issued ticket should appear in user B's ticket list rather than user A's.

@@ -15,6 +15,7 @@ const form = reactive({
   idCardNo: '',
   phone: '',
   bankCardNo: '',
+  passengerType: 'ADULT',
 })
 const loading = ref(false)
 const errorMessage = ref('')
@@ -27,6 +28,7 @@ function fillMockProfile() {
   form.phone = `138${seed.padStart(8, '0')}`
   form.idCardNo = `11010119900101${seed.slice(-4)}`
   form.bankCardNo = `6222020202020${seed.padStart(6, '0')}`
+  form.passengerType = 'ADULT'
 }
 
 async function handleSubmit() {
@@ -114,6 +116,17 @@ async function handleSubmit() {
             placeholder="11位合法号"
             required
           />
+        </label>
+        <label class="block">
+          <span class="text-sm font-semibold text-[#526d82]">乘车人类型</span>
+          <select
+            v-model="form.passengerType"
+            class="mt-2 block w-full rounded-lg border border-[#cdddf1] bg-[#e8f1ff] px-4 py-3 text-sm text-slate-900 shadow-none transition hover:border-[#9bcaf2] focus:border-[#2da9ee] focus:ring-4 focus:ring-[#2da9ee]/15"
+          >
+            <option value="ADULT">成人</option>
+            <option value="STUDENT">学生</option>
+            <option value="CHILD">儿童</option>
+          </select>
         </label>
         <label class="block sm:col-span-2">
           <span class="text-sm font-semibold text-[#526d82]">身份证号码（18位）</span>

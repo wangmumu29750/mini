@@ -8,6 +8,7 @@ import { useNotificationStore } from '@/stores/notifications'
 import type { ApiErrorPayload } from '@/types/api'
 import type { Ticket, TrainSearchItem } from '@/types/domain'
 import { formatDateTime, formatMoney, formatTime } from '@/utils/format'
+import { calculateTicketPricePreview } from '@/utils/ticketPricing'
 
 const notificationStore = useNotificationStore()
 const tickets = ref<Ticket[]>([])
@@ -58,11 +59,9 @@ const selectedSettlementPreview = computed(() => {
   const seat = selectedSeat.value
   if (!ticket || !train || !seat) return null
 
-  let nextPrice = seat.priceCents
-  if (ticket.ticketType === 'CHILD') {
-    nextPrice = Math.round(seat.priceCents * 0.5)
-  } else if (ticket.ticketType === 'STUDENT') {
-    nextPrice = ['Z', 'T', 'K'].includes(train.trainType) ? Math.round(seat.priceCents * 0.6) : Math.round(seat.priceCents * 0.75)
+  const nextPrice = calculateTicketPricePreview(seat.priceCents, train.trainType, seat.seatClassCode, ticket.ticketType)
+  if (nextPrice === null) {
+    return null
   }
 
   return {
@@ -119,7 +118,7 @@ async function handleRefund(ticket: Ticket) {
     const result = await refundTicket(ticket.id)
     tickets.value = tickets.value.map((item) => (item.id === ticket.id ? result.ticket : item))
     await notificationStore.refresh()
-    successMessage.value = `退票成功，退款流水号：${result.refundNo}`
+    successMessage.value = `退票成功，退款 ${formatMoney(result.refundAmountCents)}，手续费 ${formatMoney(result.feeCents)}，退款流水号：${result.refundNo}`
   } catch (error) {
     errorMessage.value = (error as ApiErrorPayload).message
   } finally {
@@ -233,6 +232,22 @@ function ticketTypeText(ticketType: string) {
   if (ticketType === 'STUDENT') return '学生票'
   if (ticketType === 'CHILD') return '儿童票'
   return '成人票'
+}
+
+function seatChangeDisplayPrice(train: TrainSearchItem, seatClassCode: string, priceCents: number) {
+  const ticket = selectedTicket.value
+  if (!ticket) {
+    return priceCents
+  }
+  return calculateTicketPricePreview(priceCents, train.trainType, seatClassCode, ticket.ticketType) ?? priceCents
+}
+
+function selectedTrainSeatDisplayPrice(seatClassCode: string, priceCents: number) {
+  const train = selectedChangeTrain.value
+  if (!train) {
+    return priceCents
+  }
+  return seatChangeDisplayPrice(train, seatClassCode, priceCents)
 }
 
 function canOperate(ticket: Ticket) {
@@ -436,7 +451,7 @@ function canOperate(ticket: Ticket) {
             <select v-model="changeForm.seatClassCode" class="form-input mt-2 h-11" :disabled="!selectedChangeTrain">
               <option value="">请选择</option>
               <option v-for="seat in selectedChangeTrain?.seatOptions || []" :key="seat.seatClassCode" :value="seat.seatClassCode" :disabled="seat.availableCount <= 0">
-                {{ seat.seatClassName }} / {{ formatMoney(seat.priceCents) }} / 余 {{ seat.availableCount }}
+                {{ seat.seatClassName }} / {{ formatMoney(selectedTrainSeatDisplayPrice(seat.seatClassCode, seat.priceCents)) }} / 余 {{ seat.availableCount }}
               </option>
             </select>
           </label>
@@ -451,7 +466,8 @@ function canOperate(ticket: Ticket) {
             新行程：{{ selectedChangeTrain.trainNo }} {{ selectedChangeTrain.fromStation.name }} {{ formatTime(selectedChangeTrain.departTime) }}
             -> {{ selectedChangeTrain.toStation.name }} {{ formatTime(selectedChangeTrain.arriveTime) }}
           </div>
-          <div class="mt-2">新席别：{{ selectedSeat.seatClassName }} / 票面价 {{ formatMoney(selectedSeat.priceCents) }}</div>
+          <div class="mt-2">当前改签票种：{{ ticketTypeText(selectedTicket.ticketType) }}</div>
+          <div class="mt-2">新席别：{{ selectedSeat.seatClassName }} / 改签票价 {{ formatMoney(selectedTrainSeatDisplayPrice(selectedSeat.seatClassCode, selectedSeat.priceCents)) }}</div>
           <div v-if="selectedSettlementPreview" class="mt-2 text-amber-700">
             预计新票价 {{ formatMoney(selectedSettlementPreview.nextPrice) }}，
             {{ selectedSettlementPreview.priceDiffCents > 0 ? `预计补差价 ${formatMoney(selectedSettlementPreview.priceDiffCents)}` : selectedSettlementPreview.priceDiffCents < 0 ? `预计退差价 ${formatMoney(Math.abs(selectedSettlementPreview.priceDiffCents))}` : '预计无票价差' }}。

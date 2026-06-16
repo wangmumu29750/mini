@@ -309,10 +309,15 @@ func (s *OrderService) Pay(userID, orderID uint64, req dto.PayOrderRequest) (dto
 				return apperrors.New(http.StatusConflict, response.CodeInvalidOrderState, "订单锁票状态异常")
 			}
 
+			var passenger model.PassengerProfile
+			if err := tx.Select("id", "user_id").First(&passenger, item.PassengerID).Error; err != nil {
+				return err
+			}
+
 			ticket := model.Ticket{
 				TicketNo:        makeBizNo("T"),
 				OrderID:         order.ID,
-				UserID:          userID,
+				UserID:          passenger.UserID,
 				TrainID:         order.TrainID,
 				TrainNo:         order.TrainNo,
 				TravelDate:      order.TravelDate,
@@ -511,15 +516,15 @@ func passengerProfileForOrder(tx *gorm.DB, userID, passengerID uint64, walkUpPas
 		return copy, nil
 	}
 
-	var profile model.PassengerProfile
-	err := tx.Where("id = ? AND user_id = ? AND verified_status = ?", passengerID, userID, model.VerificationStatusVerified).First(&profile).Error
+	userRepo := repository.NewUserRepository(tx)
+	profile, err := userRepo.FindPassengerProfileByID(userID, passengerID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return model.PassengerProfile{}, apperrors.New(http.StatusNotFound, response.CodeNotFound, "乘车人不存在或未实名")
-		}
 		return model.PassengerProfile{}, err
 	}
-	return profile, nil
+	if profile == nil || profile.VerifiedStatus != model.VerificationStatusVerified {
+		return model.PassengerProfile{}, apperrors.New(http.StatusNotFound, response.CodeNotFound, "乘车人不存在或未实名")
+	}
+	return *profile, nil
 }
 
 func releaseOrderLocks(tx *gorm.DB, order model.Order) error {

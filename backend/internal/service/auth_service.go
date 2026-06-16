@@ -32,9 +32,13 @@ func (s *AuthService) Register(req dto.RegisterRequest) (dto.AuthResponse, error
 	req.IDCardNo = strings.TrimSpace(req.IDCardNo)
 	req.Phone = strings.TrimSpace(req.Phone)
 	req.BankCardNo = strings.TrimSpace(req.BankCardNo)
+	req.PassengerType = strings.ToUpper(strings.TrimSpace(req.PassengerType))
 
 	if err := mock.VerifyIdentity(req.RealName, req.IDCardNo, req.Phone, req.BankCardNo); err != nil {
 		return dto.AuthResponse{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, err.Error())
+	}
+	if !isSupportedPassengerType(req.PassengerType) {
+		return dto.AuthResponse{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "不支持的乘车人类型")
 	}
 
 	exists, err := s.users.UsernameExists(req.Username)
@@ -77,6 +81,7 @@ func (s *AuthService) Register(req dto.RegisterRequest) (dto.AuthResponse, error
 		IDCardNo:       req.IDCardNo,
 		Phone:          req.Phone,
 		BankCardNo:     req.BankCardNo,
+		PassengerType:  model.PassengerType(req.PassengerType),
 		VerifiedStatus: model.VerificationStatusVerified,
 	}
 
@@ -148,12 +153,29 @@ func (s *AuthService) CreatePassengerProfile(userID uint64, req dto.PassengerPro
 		return dto.PassengerSummaryResponse{}, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "不支持的乘车人类型")
 	}
 
-	idCardExists, err := s.users.IDCardExists(req.IDCardNo)
+	existingProfile, err := s.users.FindPassengerProfileByIdentity(req.IDCardNo)
 	if err != nil {
 		return dto.PassengerSummaryResponse{}, err
 	}
-	if idCardExists {
-		return dto.PassengerSummaryResponse{}, apperrors.New(http.StatusConflict, response.CodeConflict, "身份证号已绑定其他乘车人")
+	if existingProfile != nil {
+		if existingProfile.RealName != req.RealName || existingProfile.Phone != req.Phone || existingProfile.BankCardNo != req.BankCardNo {
+			return dto.PassengerSummaryResponse{}, apperrors.New(http.StatusConflict, response.CodeConflict, "该实名乘车人信息与已注册账户不一致")
+		}
+		if existingProfile.VerifiedStatus != model.VerificationStatusVerified {
+			return dto.PassengerSummaryResponse{}, apperrors.New(http.StatusConflict, response.CodeConflict, "该乘车人尚未完成实名验证")
+		}
+		if existingProfile.UserID == userID {
+			return dto.PassengerSummaryResponse{}, apperrors.New(http.StatusConflict, response.CodeConflict, "该乘车人已在当前账号下")
+		}
+		if err := s.users.UpsertPassengerAssociation(userID, existingProfile.ID, model.PassengerType(req.PassengerType)); err != nil {
+			return dto.PassengerSummaryResponse{}, err
+		}
+		return dto.PassengerSummaryResponse{
+			ID:             existingProfile.ID,
+			RealName:       existingProfile.RealName,
+			IDCardNoMasked: maskIDCardNo(existingProfile.IDCardNo),
+			PassengerType:  req.PassengerType,
+		}, nil
 	}
 
 	phoneExists, err := s.users.PhoneExists(req.Phone)

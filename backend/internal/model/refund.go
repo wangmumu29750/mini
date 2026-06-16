@@ -10,6 +10,7 @@ type Refund struct {
 	PaymentID      uint64       `gorm:"not null;index" json:"paymentId"`
 	UserID         uint64       `gorm:"not null;index;uniqueIndex:idx_refund_idempotency,priority:1" json:"userId"`
 	AmountCents    int64        `gorm:"not null" json:"amountCents"`
+	FeeCents       int64        `gorm:"not null;default:0" json:"feeCents"`
 	Status         RefundStatus `gorm:"size:20;not null;index" json:"status"`
 	Reason         string       `gorm:"size:200" json:"reason"`
 	IdempotencyKey string       `gorm:"size:80;uniqueIndex:idx_refund_idempotency,priority:2" json:"-"`

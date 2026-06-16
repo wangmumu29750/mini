@@ -35,6 +35,7 @@
 - 手机号必须唯一绑定一个账号或旅客资料，除非明确支持换绑流程。
 - 密码不得明文存储，后端必须使用 bcrypt 或同等级方案保存密码摘要。
 - 普通旅客只能访问自己的订单、车票、支付和退款记录。
+- 普通旅客可以关联其他已经实名的乘车人用于代购车票，但不能复制或改写对方实名档案；身份证号仍然只保留一份实名资料。
 - 管理员可以维护基础数据和系统参数，但管理员不能直接绕过业务服务修改订单状态。
 - 所有需要登录的接口必须经过 JWT 鉴权中间件。
 
@@ -54,7 +55,9 @@
 - 创建订单前必须校验旅客实名资料已通过模拟认证。
 - 同一用户可以购买多张票，但 MVP 可限制每个订单仅包含一名乘车人和一张票，降低复杂度。
 - 当前多票种购票切片支持一个订单包含多名乘车人，每个乘车人独立选择席别和票种。订单总金额必须以后端服务层根据订单明细重新计算为准。
+- 当前账号可为本人和已关联的实名乘车人一起购票；如果新增乘车人时填写的身份证已在系统实名存在，则应关联该乘车人而不是重复创建实名档案。关联关系下的乘车人类型用于当前账号购票时的票种选择，例如可按学生乘车人展示学生票选项。
 - 票种支持 `ADULT` 成人票、`STUDENT` 学生票、`CHILD` 儿童票。学生票仅二等座享 7.5 折，一等座和商务座不允许学生票；儿童票统一 5 折；成人票不打折。
+- 订单确认时，非儿童乘车人可选择成人票或学生票；学生票资格与席别限制必须以后端实名资料和票种规则校验为准。
 - 下单时必须锁定或扣减库存，支付超时或取消时释放库存。
 - 支付成功后订单状态变为 `PAID`，随后生成车票并将订单标记为 `TICKETED`。
 - 重复支付请求必须幂等，不能重复扣款、重复出票或重复扣库存。
@@ -141,7 +144,7 @@
 - `POST /orders/{orderId}/cancel` cancels only `PENDING_PAYMENT` orders, releases the locked inventory, and changes the order to `CANCELLED`.
 - The current code treats `PAID` as "paid and ticket issued" for the first runnable vertical slice. Later slices may split this into `PAID -> TICKETED` if asynchronous ticketing is needed.
 - The ticket slice now supports transactional refund and change operations.
-- `POST /tickets/{ticketId}/refund` only accepts `ISSUED` tickets before departure. It marks the ticket `REFUNDED`, releases one sold inventory back to available inventory, creates a successful mock refund record, and closes the related order in one database transaction.
+- `POST /tickets/{ticketId}/refund` only accepts `ISSUED` tickets before departure. It marks the ticket `REFUNDED`, releases one sold inventory back to available inventory, calculates `fee_cents` from `refund_fee_percent`, creates a successful mock refund record with the net refund amount for that ticket, and closes the related order only when no issued tickets remain in one database transaction.
 - `POST /tickets/{ticketId}/change` only accepts `ISSUED` tickets before departure. It marks the old ticket `CHANGED_OUT`, releases old sold inventory, consumes new available inventory, creates a new `ISSUED` ticket, updates the related order snapshot, and writes a successful change record with `price_diff_cents` and `fee_cents` in one database transaction.
 - Ticket search and order creation reject past travel dates. For same-day travel, trains whose actual departure time has passed are filtered out and cannot be bought.
 - Train search and change-option responses now include ordered `viaStations` so the frontend can display intermediate route stops.
@@ -152,6 +155,7 @@
 - Train and fare data now supports `G` / `C` / `D` / `Z` / `T` / `K` train types with type-specific seat classes. Admin inventory save validates the seat class against the train type and can calculate `price_cents` from route mileage when the request sends `priceCents: 0`.
 - The passenger web flow now supports search -> confirm order -> payment. `POST /orders` accepts multiple passenger items, writes `order_items`, locks one inventory item per passenger, and `POST /orders/{orderId}/payments` creates one ticket per order item.
 - The passenger account may maintain multiple verified passenger profiles, so one logged-in user can buy tickets for accompanying travelers after adding their passenger identity information.
+- When a user buys tickets for accompanying travelers, each issued ticket belongs to the actual passenger account matched by the real-name passenger profile. Companion tickets must be shown in that passenger's "My Tickets" list instead of only under the buyer account.
 - `POST /orders` now rejects duplicate active purchases for the same passenger on the same `train_id + travel_date`. Active duplicate scope includes both `PENDING_PAYMENT` and `PAID` orders, so the same passenger cannot repeatedly hold or buy the same train on the same day even if the selected segment differs.
 - Change now supports cross-seat-class changes within the same route, but ticket-type restrictions still apply. Student tickets cannot change into non-second-class seats.
 - When change settlement is positive, the backend creates an extra mock payment record; when it is negative, the backend creates a mock refund record for the settlement difference.

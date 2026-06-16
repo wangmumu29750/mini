@@ -199,6 +199,12 @@ func (s *TicketService) Refund(userID, ticketID uint64, req dto.RefundTicketRequ
 			return err
 		}
 
+		feeCents := percentageFee(ticket.RealPriceCents, systemSettingInt(tx, "refund_fee_percent", 0))
+		refundAmountCents := ticket.RealPriceCents - feeCents
+		if refundAmountCents < 0 {
+			refundAmountCents = 0
+		}
+
 		var payment model.Payment
 		if err := tx.Where("order_id = ? AND status = ?", ticket.OrderID, model.PaymentStatusSuccess).Order("id DESC").First(&payment).Error; err != nil {
 			return err
@@ -208,7 +214,8 @@ func (s *TicketService) Refund(userID, ticketID uint64, req dto.RefundTicketRequ
 			TicketID:       ticket.ID,
 			PaymentID:      payment.ID,
 			UserID:         userID,
-			AmountCents:    payment.AmountCents,
+			AmountCents:    refundAmountCents,
+			FeeCents:       feeCents,
 			Status:         model.RefundStatusSuccess,
 			Reason:         reason,
 			IdempotencyKey: key,
@@ -217,10 +224,19 @@ func (s *TicketService) Refund(userID, ticketID uint64, req dto.RefundTicketRequ
 		if err := tx.Create(&refund).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&model.Order{}).
-			Where("id = ? AND user_id = ?", ticket.OrderID, userID).
-			Update("status", model.OrderStatusClosed).Error; err != nil {
+
+		var remainingIssuedTickets int64
+		if err := tx.Model(&model.Ticket{}).
+			Where("order_id = ? AND status = ?", ticket.OrderID, model.TicketStatusIssued).
+			Count(&remainingIssuedTickets).Error; err != nil {
 			return err
+		}
+		if remainingIssuedTickets == 0 {
+			if err := tx.Model(&model.Order{}).
+				Where("id = ?", ticket.OrderID).
+				Update("status", model.OrderStatusClosed).Error; err != nil {
+				return err
+			}
 		}
 
 		ticket.Status = model.TicketStatusRefunded
@@ -233,8 +249,10 @@ func (s *TicketService) Refund(userID, ticketID uint64, req dto.RefundTicketRequ
 	}
 
 	return dto.RefundTicketResponse{
-		RefundNo: refund.RefundNo,
-		Ticket:   ticketResponse(refunded),
+		RefundNo:          refund.RefundNo,
+		RefundAmountCents: refund.AmountCents,
+		FeeCents:          refund.FeeCents,
+		Ticket:            ticketResponse(refunded),
 	}, nil
 }
 
@@ -447,7 +465,7 @@ func (s *TicketService) Change(userID, ticketID uint64, req dto.ChangeTicketRequ
 			refundNo = refund.RefundNo
 		}
 		if err := tx.Model(&model.Order{}).
-			Where("id = ? AND user_id = ?", ticket.OrderID, userID).
+			Where("id = ?", ticket.OrderID).
 			Updates(map[string]any{
 				"train_id":          newTicket.TrainID,
 				"train_no":          newTicket.TrainNo,

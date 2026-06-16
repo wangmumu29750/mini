@@ -30,8 +30,10 @@ type RefundTicketRequest struct {
 }
 
 type RefundTicketResponse struct {
-	RefundNo string         `json:"refundNo"`
-	Ticket   TicketResponse `json:"ticket"`
+	RefundNo          string         `json:"refundNo"`
+	RefundAmountCents int64          `json:"refundAmountCents"`
+	FeeCents          int64          `json:"feeCents"`
+	Ticket            TicketResponse `json:"ticket"`
 }
 
 type ChangeTicketRequest struct {

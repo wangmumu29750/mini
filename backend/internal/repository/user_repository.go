@@ -71,13 +71,26 @@ func (r *UserRepository) PhoneExists(phone string) (bool, error) {
 
 func (r *UserRepository) ListPassengerProfilesByUser(userID uint64) ([]model.PassengerProfile, error) {
 	var profiles []model.PassengerProfile
-	err := r.db.Where("user_id = ?", userID).Order("id DESC").Find(&profiles).Error
+	err := r.db.
+		Model(&model.PassengerProfile{}).
+		Distinct("passenger_profiles.*").
+		Joins("LEFT JOIN passenger_associations pa ON pa.passenger_profile_id = passenger_profiles.id").
+		Select("passenger_profiles.*, COALESCE(pa.passenger_type, passenger_profiles.passenger_type) AS passenger_type").
+		Where("passenger_profiles.user_id = ? OR pa.owner_user_id = ?", userID, userID).
+		Order("passenger_profiles.id DESC").
+		Find(&profiles).Error
 	return profiles, err
 }
 
 func (r *UserRepository) FindPassengerProfileByID(userID, passengerID uint64) (*model.PassengerProfile, error) {
 	var profile model.PassengerProfile
-	err := r.db.Where("user_id = ? AND id = ?", userID, passengerID).First(&profile).Error
+	err := r.db.
+		Model(&model.PassengerProfile{}).
+		Distinct("passenger_profiles.*").
+		Joins("LEFT JOIN passenger_associations pa ON pa.passenger_profile_id = passenger_profiles.id").
+		Select("passenger_profiles.*, COALESCE(pa.passenger_type, passenger_profiles.passenger_type) AS passenger_type").
+		Where("passenger_profiles.id = ? AND (passenger_profiles.user_id = ? OR pa.owner_user_id = ?)", passengerID, userID, userID).
+		First(&profile).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -97,4 +110,32 @@ func (r *UserRepository) FindVerifiedPassengerProfileByIdentity(idCardNo string)
 
 func (r *UserRepository) CreatePassengerProfile(profile *model.PassengerProfile) error {
 	return r.db.Create(profile).Error
+}
+
+func (r *UserRepository) FindPassengerProfileByIdentity(idCardNo string) (*model.PassengerProfile, error) {
+	var profile model.PassengerProfile
+	err := r.db.Where("id_card_no = ?", strings.TrimSpace(idCardNo)).First(&profile).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &profile, err
+}
+
+func (r *UserRepository) LinkPassengerProfile(ownerUserID, passengerProfileID uint64) error {
+	association := &model.PassengerAssociation{
+		OwnerUserID:        ownerUserID,
+		PassengerProfileID: passengerProfileID,
+	}
+	return r.db.Where("owner_user_id = ? AND passenger_profile_id = ?", ownerUserID, passengerProfileID).FirstOrCreate(association).Error
+}
+
+func (r *UserRepository) UpsertPassengerAssociation(ownerUserID, passengerProfileID uint64, passengerType model.PassengerType) error {
+	association := &model.PassengerAssociation{
+		OwnerUserID:        ownerUserID,
+		PassengerProfileID: passengerProfileID,
+		PassengerType:      passengerType,
+	}
+	return r.db.Where("owner_user_id = ? AND passenger_profile_id = ?", ownerUserID, passengerProfileID).
+		Assign(association).
+		FirstOrCreate(association).Error
 }

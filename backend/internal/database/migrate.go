@@ -11,9 +11,10 @@ func Migrate(db *gorm.DB) error {
 		return err
 	}
 
-	return db.AutoMigrate(
+	if err := db.AutoMigrate(
 		&model.User{},
 		&model.PassengerProfile{},
+		&model.PassengerAssociation{},
 		&model.Station{},
 		&model.Train{},
 		&model.TrainStop{},
@@ -25,7 +26,11 @@ func Migrate(db *gorm.DB) error {
 		&model.Refund{},
 		&model.ChangeRecord{},
 		&model.SystemSetting{},
-	)
+	); err != nil {
+		return err
+	}
+
+	return backfillTicketOwners(db)
 }
 
 func preparePassengerProfileIndexes(db *gorm.DB) error {
@@ -76,4 +81,14 @@ func preparePassengerProfileIndexes(db *gorm.DB) error {
 		return err
 	}
 	return db.Exec("CREATE INDEX `" + indexName + "` ON `passenger_profiles` (`user_id`)").Error
+}
+
+func backfillTicketOwners(db *gorm.DB) error {
+	return db.Exec(`
+		UPDATE tickets AS t
+		JOIN order_items AS oi ON oi.ticket_id = t.id
+		JOIN passenger_profiles AS pp ON pp.id = oi.passenger_id
+		SET t.user_id = pp.user_id
+		WHERE t.user_id <> pp.user_id
+	`).Error
 }

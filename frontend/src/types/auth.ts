@@ -23,6 +23,7 @@ export interface RegisterRequest {
   idCardNo: string
   phone: string
   bankCardNo: string
+  passengerType: 'ADULT' | 'STUDENT' | 'CHILD' | string
 }
 
 export interface CreatePassengerProfileRequest {

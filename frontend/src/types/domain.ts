@@ -197,6 +197,8 @@ export interface Ticket {
 
 export interface RefundResult {
   refundNo: string
+  refundAmountCents: number
+  feeCents: number
   ticket: Ticket
 }
 

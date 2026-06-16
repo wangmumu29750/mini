@@ -11,6 +11,7 @@ import type { ApiErrorPayload } from '@/types/api'
 import type { CreatePassengerProfileRequest } from '@/types/auth'
 import type { PassengerSummary, TicketType, TrainSearchItem } from '@/types/domain'
 import { formatDuration, formatMoney, formatTime } from '@/utils/format'
+import { calculateTicketPricePreview, isSeatAllowedForTicketType } from '@/utils/ticketPricing'
 
 type PassengerDraft = {
   passengerId: number
@@ -127,6 +128,18 @@ function seatOptions() {
   return train.value?.seatOptions || []
 }
 
+function firstAllowedSeatType(ticketType: TicketType) {
+  return seatOptions().find((item) => isSeatAllowedForTicketType(ticketType, item.seatClassCode))?.seatClassCode || ''
+}
+
+function resolveSeatType(seatType: string, ticketType: TicketType) {
+  const matched = seatOptions().find((item) => item.seatClassCode === seatType)
+  if (matched && isSeatAllowedForTicketType(ticketType, seatType)) {
+    return seatType
+  }
+  return firstAllowedSeatType(ticketType)
+}
+
 function seatName(code: string) {
   return seatOptions().find((item) => item.seatClassCode === code)?.seatClassName || code
 }
@@ -136,19 +149,10 @@ function seatBasePrice(code: string) {
 }
 
 function displayPrice(draft: PassengerDraft) {
-  const base = seatBasePrice(draft.seatType)
-  if (draft.ticketType === 'STUDENT') {
-    return Math.round(base * studentDiscountFactor())
-  }
-  if (draft.ticketType === 'CHILD') {
-    return Math.round(base * 0.5)
-  }
-  return base
-}
-
-function studentDiscountFactor() {
-  const type = train.value?.trainType || train.value?.trainNo.slice(0, 1) || ''
-  return ['Z', 'T', 'K'].includes(type) ? 0.6 : 0.75
+  const resolvedSeatType = resolveSeatType(draft.seatType, draft.ticketType)
+  const base = seatBasePrice(resolvedSeatType)
+  const trainType = train.value?.trainType || train.value?.trainNo.slice(0, 1) || ''
+  return calculateTicketPricePreview(base, trainType, resolvedSeatType, draft.ticketType) ?? 0
 }
 
 function passengerById(id: number) {
@@ -182,7 +186,21 @@ function ticketTypeOptions(draft: PassengerDraft) {
       { value: 'STUDENT', label: '学生票' },
     ]
   }
-  return [{ value: 'ADULT', label: '成人票' }]
+  return [
+    { value: 'ADULT', label: '成人票' },
+    { value: 'STUDENT', label: '学生票' },
+  ]
+}
+
+function syncDraftSeatType(draft: PassengerDraft) {
+  if (isSeatAllowedForTicketType(draft.ticketType, draft.seatType)) {
+    return
+  }
+  draft.seatType = firstAllowedSeatType(draft.ticketType)
+}
+
+function isSeatDisabledForDraft(draft: PassengerDraft, seatClassCode: string) {
+  return !isSeatAllowedForTicketType(draft.ticketType, seatClassCode)
 }
 
 function emptyPassengerForm(): CreatePassengerProfileRequest {
@@ -199,11 +217,11 @@ function normalizeTicketType(current: string | undefined, passengerType: string)
   if (passengerType === 'CHILD') {
     return 'CHILD'
   }
-  if (passengerType === 'STUDENT') {
+  if (passengerType === 'STUDENT' || passengerType === 'ADULT') {
     if (current === 'ADULT' || current === 'STUDENT') {
       return current
     }
-    return 'STUDENT'
+    return passengerType === 'STUDENT' ? 'STUDENT' : 'ADULT'
   }
   return 'ADULT'
 }
@@ -216,11 +234,13 @@ function rebuildPassengerDrafts(
   const previousMap = new Map(previousDrafts.map((item) => [item.passengerId, item]))
   return passengerItems.map((passenger, index) => {
     const previous = previousMap.get(passenger.id)
+    const ticketType = normalizeTicketType(previous?.ticketType, passenger.passengerType) || defaultTicketType(passenger.passengerType)
+    const preferredSeatType = previous?.seatType || query.value.seatType
     return {
       passengerId: passenger.id,
       selected: selectedPassengerId ? passenger.id === selectedPassengerId : (previous?.selected ?? index === 0),
-      seatType: previous?.seatType || query.value.seatType,
-      ticketType: normalizeTicketType(previous?.ticketType, passenger.passengerType) || defaultTicketType(passenger.passengerType),
+      seatType: resolveSeatType(preferredSeatType, ticketType),
+      ticketType,
     }
   })
 }
@@ -301,12 +321,17 @@ function rebuildPassengerDrafts(
                 </label>
 
                 <select v-model="draft.seatType" class="form-input" :disabled="!draft.selected">
-                  <option v-for="seat in seatOptions()" :key="seat.seatClassCode" :value="seat.seatClassCode">
+                  <option
+                    v-for="seat in seatOptions()"
+                    :key="seat.seatClassCode"
+                    :value="seat.seatClassCode"
+                    :disabled="isSeatDisabledForDraft(draft, seat.seatClassCode)"
+                  >
                     {{ seat.seatClassName }} · {{ formatMoney(seat.priceCents) }}
                   </option>
                 </select>
 
-                <select v-model="draft.ticketType" class="form-input" :disabled="!draft.selected">
+                <select v-model="draft.ticketType" class="form-input" :disabled="!draft.selected" @change="syncDraftSeatType(draft)">
                   <option v-for="item in ticketTypeOptions(draft)" :key="item.value" :value="item.value">
                     {{ item.label }}
                   </option>

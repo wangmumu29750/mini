@@ -41,6 +41,21 @@
 
 多乘车人购票切片要求一个账号可维护多名乘车人，`passenger_profiles.user_id` 只能是普通索引，不能再使用唯一索引。已有数据库如果存在 `user_id` 唯一约束，需要先删除该唯一索引。
 
+### passenger_associations
+
+账号与已实名乘车人的关联表。
+
+| 字段 | 说明 |
+| --- | --- |
+| id | 主键 |
+| owner_user_id | 发起关联的账号 ID |
+| passenger_profile_id | 被关联的实名乘车人资料 ID |
+| passenger_type | 当前账号下用于购票的乘车人类型 |
+
+约束：
+- `(owner_user_id, passenger_profile_id)` 唯一。
+- 该表只建立“可代购”关系，不复制实名资料；实名主数据仍保存在 `passenger_profiles`。
+
 ### stations
 
 车站表。
@@ -210,6 +225,7 @@
 | ticket_id | 车票 ID |
 | payment_id | 原支付 ID |
 | amount_cents | 退款金额 |
+| fee_cents | 退票手续费 |
 | status | `PENDING` / `SUCCESS` / `FAILED` |
 | reason | 原因 |
 | idempotency_key | 幂等键 |
@@ -278,6 +294,7 @@
 - The `system_settings` table is implemented by the `SystemSetting` model with columns `key`, `value`, `value_type`, and `description`.
 - Default system settings are seeded lazily by the settings service: `order_pay_expire_minutes`, `refund_cutoff_minutes`, `change_cutoff_minutes`, `refund_fee_percent`, `change_fee_percent`, and `mock_payment_enabled`.
 - Clerk-created orders are stored in the same `orders` table and reuse the order/inventory transaction rules. The `user_id` is the passenger account that owns the ticket, so the passenger can see the order and ticket after login, while passenger name and ID card snapshots are still stored on the order/ticket records.
+- `tickets.user_id` represents the actual passenger account that owns the issued ticket. When an order contains accompanying travelers, the ticket row is backfilled and maintained from `order_items.passenger_id -> passenger_profiles.user_id`, so "My Tickets" follows the passenger account rather than the buyer account.
 - `tickets.ticket_no`
 - `payments.payment_no`
 - `payments(order_id, idempotency_key)`
@@ -299,10 +316,11 @@ Current `tickets` fields in code: `ticket_no`, `order_id`, `user_id`, `train_id`
 
 Current `payments` fields in code: `payment_no`, `order_id`, `user_id`, `amount_cents`, `channel`, `status`, `paid_at`.
 
-Current `refunds` fields in code: `refund_no`, `ticket_id`, `payment_id`, `user_id`, `amount_cents`, `status`, `reason`, `idempotency_key`, `refunded_at`.
+Current `refunds` fields in code: `refund_no`, `ticket_id`, `payment_id`, `user_id`, `amount_cents`, `fee_cents`, `status`, `reason`, `idempotency_key`, `refunded_at`.
 
 Current `change_records` fields in code: `change_no`, `old_ticket_id`, `new_ticket_id`, `user_id`, `price_diff_cents`, `fee_cents`, `status`, `idempotency_key`, `changed_at`.
 Change extra payments reuse the `payments` table, and change settlement refunds reuse the `refunds` table.
+Current `passenger_associations` fields in code: `owner_user_id`, `passenger_profile_id`, `passenger_type`.
 
 Current admin maintenance notes:
 
