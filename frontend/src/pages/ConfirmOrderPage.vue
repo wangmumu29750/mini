@@ -113,9 +113,16 @@ function seatBasePrice(code: string) {
 
 function displayPrice(draft: PassengerDraft) {
   const base = seatBasePrice(draft.seatType)
-  if (draft.ticketType === 'STUDENT' && draft.seatType === 'SECOND') return Math.round(base * 0.75)
+  if (draft.ticketType === 'STUDENT') {
+    return Math.round(base * studentDiscountFactor())
+  }
   if (draft.ticketType === 'CHILD') return Math.round(base * 0.5)
   return base
+}
+
+function studentDiscountFactor() {
+  const type = train.value?.trainType || train.value?.trainNo.slice(0, 1) || ''
+  return ['Z', 'T', 'K'].includes(type) ? 0.6 : 0.75
 }
 
 function passengerName(id: number) {
@@ -137,14 +144,8 @@ function ticketTypeName(value: string) {
 function ticketTypeOptions(draft: PassengerDraft) {
   const options = [
     { value: 'ADULT', label: '成人票' },
-    { value: 'CHILD', label: '儿童票' },
+    { value: 'STUDENT', label: '学生票' },
   ]
-  if (draft.seatType === 'SECOND') {
-    options.splice(1, 0, { value: 'STUDENT', label: '学生票' })
-  }
-  if (draft.ticketType === 'STUDENT' && draft.seatType !== 'SECOND') {
-    draft.ticketType = 'ADULT'
-  }
   return options
 }
 </script>

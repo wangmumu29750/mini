@@ -13,6 +13,7 @@ import (
 
 type TicketPriceContext struct {
 	BasePriceCents int64
+	TrainType      string
 	SeatType       string
 	TicketType     string
 }
@@ -35,22 +36,24 @@ func newTicketPriceCalculator() *ticketPriceCalculator {
 	}
 }
 
-func CalculateTicketPrice(basePriceCents int64, seatType, ticketType string) (int64, error) {
-	return newTicketPriceCalculator().Calculate(basePriceCents, seatType, ticketType)
+func CalculateTicketPrice(basePriceCents int64, trainType, seatType, ticketType string) (int64, error) {
+	return newTicketPriceCalculator().Calculate(basePriceCents, trainType, seatType, ticketType)
 }
 
-func (c *ticketPriceCalculator) Calculate(basePriceCents int64, seatType, ticketType string) (int64, error) {
+func (c *ticketPriceCalculator) Calculate(basePriceCents int64, trainType, seatType, ticketType string) (int64, error) {
+	trainType = strings.ToUpper(strings.TrimSpace(trainType))
 	seatType = strings.ToUpper(strings.TrimSpace(seatType))
 	ticketType = strings.ToUpper(strings.TrimSpace(ticketType))
-	if seatType == "" || ticketType == "" {
-		return 0, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "席别和票种不能为空")
+	if trainType == "" || seatType == "" || ticketType == "" {
+		return 0, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "甯埆銆佽溅绫诲拰绁ㄧ涓嶈兘涓虹┖")
 	}
 	rule, ok := c.rules[ticketType]
 	if !ok {
-		return 0, apperrors.New(http.StatusBadRequest, response.CodeValidationError, fmt.Sprintf("不支持的票种: %s", ticketType))
+		return 0, apperrors.New(http.StatusBadRequest, response.CodeValidationError, fmt.Sprintf("涓嶆敮鎸佺殑绁ㄧ: %s", ticketType))
 	}
 	return rule.Apply(TicketPriceContext{
 		BasePriceCents: basePriceCents,
+		TrainType:      trainType,
 		SeatType:       seatType,
 		TicketType:     ticketType,
 	})
@@ -65,10 +68,14 @@ func (adultTicketRule) Apply(ctx TicketPriceContext) (int64, error) {
 type studentTicketRule struct{}
 
 func (studentTicketRule) Apply(ctx TicketPriceContext) (int64, error) {
-	if ctx.SeatType != "SECOND" {
-		return 0, apperrors.New(http.StatusBadRequest, response.CodeValidationError, "学生票仅支持二等座")
+	switch ctx.TrainType {
+	case "Z", "T", "K":
+		return roundedPrice(ctx.BasePriceCents, 0.60), nil
+	case "G", "C", "D":
+		return roundedPrice(ctx.BasePriceCents, 0.75), nil
+	default:
+		return roundedPrice(ctx.BasePriceCents, 0.75), nil
 	}
-	return roundedPrice(ctx.BasePriceCents, 0.75), nil
 }
 
 type childTicketRule struct{}

@@ -133,7 +133,7 @@ func (s *OrderService) create(userID uint64, req dto.CreateOrderRequest, walkUpP
 				return apperrors.New(http.StatusConflict, response.CodeInsufficientInventory, "余票不足")
 			}
 
-			realPrice, err := calculator.Calculate(row.PriceCents, passengerReq.SeatType, passengerReq.TicketType)
+			realPrice, err := calculator.Calculate(row.PriceCents, row.TrainType, passengerReq.SeatType, passengerReq.TicketType)
 			if err != nil {
 				return err
 			}

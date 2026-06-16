@@ -168,7 +168,7 @@ func seedTrainWithInventory(tx *gorm.DB, stations map[string]model.Station) erro
 		if err := seedStops(tx, train.ID, stations, seed.Stops); err != nil {
 			return err
 		}
-		if err := seedInventories(tx, train.ID, stations[seed.FromStation].ID, stations[seed.ToStation].ID, seed.Inventories); err != nil {
+		if err := seedRouteInventories(tx, train.ID, stations, seed.Stops, seed.Inventories); err != nil {
 			return err
 		}
 	}
@@ -209,6 +209,52 @@ func demoTrainSeeds() []routeSeed {
 			Inventories: []inventorySeed{
 				{SeatClassCode: "SECOND", TotalCount: 96, AvailableCount: 46},
 				{SeatClassCode: "FIRST", TotalCount: 42, AvailableCount: 18},
+			},
+		},
+		{
+			TrainNo: "G215", TrainType: "G", FromStation: "BJN", ToStation: "HZD",
+			Stops: []stopSeed{
+				{StationCode: "BJN", Order: 1, ArriveClock: "", DepartClock: "07:05:00", Mileage: 0},
+				{StationCode: "TJN", Order: 2, ArriveClock: "07:38:00", DepartClock: "07:41:00", Mileage: 122},
+				{StationCode: "JNX", Order: 3, ArriveClock: "08:36:00", DepartClock: "08:39:00", Mileage: 406},
+				{StationCode: "NJH", Order: 4, ArriveClock: "09:24:00", DepartClock: "09:28:00", Mileage: 692},
+				{StationCode: "SHH", Order: 5, ArriveClock: "10:32:00", DepartClock: "10:36:00", Mileage: 1318},
+				{StationCode: "HZD", Order: 6, ArriveClock: "11:28:00", DepartClock: "", Mileage: 1477},
+			},
+			Inventories: []inventorySeed{
+				{SeatClassCode: "SECOND", TotalCount: 88, AvailableCount: 26},
+				{SeatClassCode: "FIRST", TotalCount: 36, AvailableCount: 12},
+				{SeatClassCode: "BUSINESS", TotalCount: 10, AvailableCount: 4},
+			},
+		},
+		{
+			TrainNo: "D611", TrainType: "D", FromStation: "WHN", ToStation: "SHH",
+			Stops: []stopSeed{
+				{StationCode: "WHN", Order: 1, ArriveClock: "", DepartClock: "08:15:00", Mileage: 0},
+				{StationCode: "HFN", Order: 2, ArriveClock: "09:02:00", DepartClock: "09:05:00", Mileage: 176},
+				{StationCode: "NJH", Order: 3, ArriveClock: "10:18:00", DepartClock: "10:22:00", Mileage: 531},
+				{StationCode: "SZB", Order: 4, ArriveClock: "11:08:00", DepartClock: "11:12:00", Mileage: 700},
+				{StationCode: "SHH", Order: 5, ArriveClock: "12:46:00", DepartClock: "", Mileage: 826},
+			},
+			Inventories: []inventorySeed{
+				{SeatClassCode: "SECOND", TotalCount: 120, AvailableCount: 44},
+				{SeatClassCode: "SECOND_SLEEPER", TotalCount: 64, AvailableCount: 20},
+				{SeatClassCode: "FIRST_SLEEPER", TotalCount: 32, AvailableCount: 9},
+			},
+		},
+		{
+			TrainNo: "K873", TrainType: "K", FromStation: "NJH", ToStation: "WHN",
+			Stops: []stopSeed{
+				{StationCode: "NJH", Order: 1, ArriveClock: "", DepartClock: "09:35:00", Mileage: 0},
+				{StationCode: "HFN", Order: 2, ArriveClock: "10:22:00", DepartClock: "10:25:00", Mileage: 355},
+				{StationCode: "WHN", Order: 3, ArriveClock: "12:10:00", DepartClock: "", Mileage: 884},
+			},
+			Inventories: []inventorySeed{
+				{SeatClassCode: "HARD_SEAT", TotalCount: 120, AvailableCount: 50},
+				{SeatClassCode: "NO_SEAT", TotalCount: 80, AvailableCount: 28},
+				{SeatClassCode: "HARD_SLEEPER", TotalCount: 72, AvailableCount: 18},
+				{SeatClassCode: "SOFT_SLEEPER", TotalCount: 32, AvailableCount: 8},
+				{SeatClassCode: "DELUXE_SOFT_SLEEPER", TotalCount: 12, AvailableCount: 2},
 			},
 		},
 	}
@@ -347,72 +393,58 @@ type inventorySeed struct {
 	AvailableCount int
 }
 
-func seedInventories(tx *gorm.DB, trainID, fromStationID, toStationID uint64, seeds []inventorySeed) error {
+func seedRouteInventories(tx *gorm.DB, trainID uint64, stations map[string]model.Station, stops []stopSeed, seeds []inventorySeed) error {
 	var train model.Train
 	if err := tx.First(&train, trainID).Error; err != nil {
 		return err
 	}
-	mileage, err := routeMileage(tx, trainID, fromStationID, toStationID)
-	if err != nil {
+
+	start, _ := time.ParseInLocation("2006-01-02", time.Now().Format("2006-01-02"), time.Local)
+	end := start.AddDate(0, 0, 7)
+	if err := tx.Unscoped().
+		Where("train_id = ? AND travel_date >= ? AND travel_date < ?", trainID, start, end).
+		Delete(&model.Inventory{}).Error; err != nil {
 		return err
 	}
-	start, _ := time.ParseInLocation("2006-01-02", time.Now().Format("2006-01-02"), time.Local)
-	for day := 0; day < 7; day++ {
-		travelDate := start.AddDate(0, 0, day)
-		travelDateText := travelDate.Format("2006-01-02")
-		if !trainRunsOnDay(train.TrainNo, day) {
-			continue
-		}
-		for _, seed := range seeds {
-			totalCount := seed.TotalCount - day
-			if totalCount < 1 {
-				totalCount = 1
-			}
-			availableCount := demoAvailableCount(train.TrainNo, seed.SeatClassCode, seed.AvailableCount, totalCount, day)
 
-			inventory := model.Inventory{
-				TrainID:        trainID,
-				TravelDate:     travelDate,
-				FromStationID:  fromStationID,
-				ToStationID:    toStationID,
-				SeatClassCode:  seed.SeatClassCode,
-				PriceCents:     seedFareCents(mileage, train.TrainType, seed.SeatClassCode),
-				TotalCount:     totalCount,
-				AvailableCount: availableCount,
-				LockedCount:    0,
-				SoldCount:      totalCount - availableCount,
-				Status:         model.InventoryStatusActive,
-			}
-
-			var existing model.Inventory
-			err := tx.Where("train_id = ? AND DATE(travel_date) = ? AND from_station_id = ? AND to_station_id = ? AND seat_class_code = ?", trainID, travelDateText, fromStationID, toStationID, seed.SeatClassCode).
-				First(&existing).Error
-			if err == nil {
-				existing.PriceCents = inventory.PriceCents
-				existing.TotalCount = inventory.TotalCount
-				existing.AvailableCount = inventory.AvailableCount
-				existing.LockedCount = inventory.LockedCount
-				existing.SoldCount = inventory.SoldCount
-				existing.Status = inventory.Status
-				if err := tx.Save(&existing).Error; err != nil {
-					return err
-				}
+	inventories := make([]model.Inventory, 0, len(stops)*len(stops)*len(seeds)*7)
+	for fromIndex := 0; fromIndex < len(stops)-1; fromIndex++ {
+		for toIndex := fromIndex + 1; toIndex < len(stops); toIndex++ {
+			fromStation := stations[stops[fromIndex].StationCode]
+			toStation := stations[stops[toIndex].StationCode]
+			mileage := stops[toIndex].Mileage - stops[fromIndex].Mileage
+			if mileage <= 0 {
 				continue
 			}
-			if err != gorm.ErrRecordNotFound {
-				return err
-			}
-
-			if err := tx.Create(&inventory).Error; err != nil {
-				return err
+			for day := 0; day < 7; day++ {
+				travelDate := start.AddDate(0, 0, day)
+				for _, seed := range seeds {
+					totalCount := seed.TotalCount - day
+					if totalCount < 1 {
+						totalCount = 1
+					}
+					availableCount := demoAvailableCount(train.TrainNo, seed.SeatClassCode, seed.AvailableCount, totalCount, day)
+					inventories = append(inventories, model.Inventory{
+						TrainID:        trainID,
+						TravelDate:     travelDate,
+						FromStationID:  fromStation.ID,
+						ToStationID:    toStation.ID,
+						SeatClassCode:  seed.SeatClassCode,
+						PriceCents:     seedFareCents(mileage, train.TrainType, seed.SeatClassCode),
+						TotalCount:     totalCount,
+						AvailableCount: availableCount,
+						LockedCount:    0,
+						SoldCount:      totalCount - availableCount,
+						Status:         model.InventoryStatusActive,
+					})
+				}
 			}
 		}
 	}
-	return nil
-}
-
-func trainRunsOnDay(trainNo string, day int) bool {
-	return true
+	if len(inventories) == 0 {
+		return nil
+	}
+	return tx.CreateInBatches(inventories, 1000).Error
 }
 
 func demoAvailableCount(trainNo, seatClassCode string, baseAvailable, totalCount, day int) int {
@@ -453,18 +485,6 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
-}
-
-func routeMileage(tx *gorm.DB, trainID, fromStationID, toStationID uint64) (int, error) {
-	var fromStop model.TrainStop
-	if err := tx.Where("train_id = ? AND station_id = ?", trainID, fromStationID).First(&fromStop).Error; err != nil {
-		return 0, err
-	}
-	var toStop model.TrainStop
-	if err := tx.Where("train_id = ? AND station_id = ?", trainID, toStationID).First(&toStop).Error; err != nil {
-		return 0, err
-	}
-	return toStop.Mileage - fromStop.Mileage, nil
 }
 
 func seedFareCents(mileage int, trainType string, seatClassCode string) int64 {
